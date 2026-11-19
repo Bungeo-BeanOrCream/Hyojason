@@ -68,3 +68,32 @@ class EndReason(StrEnum):
 class Source(StrEnum):
     LIVE = "LIVE"
     FIXTURE = "FIXTURE"
+
+
+class ActorRole(StrEnum):
+    """제어 명령·판단을 보낸 쪽. AGENT는 서버 내부(B-05 판단, 통화 종료 처리)다."""
+
+    PARENT = "PARENT"
+    CHILD = "CHILD"
+    AGENT = "AGENT"
+
+
+class HelpCommand(StrEnum):
+    """help.complete(자녀) / help.stop(부모)."""
+
+    COMPLETE = "COMPLETE"
+    STOP = "STOP"
+
+
+class CleanupScope(StrEnum):
+    """N-23이 도움 종료 때 비우는 범위."""
+
+    # 서버
+    HELP_STATE = "HELP_STATE"  # 목표·지시·모드 등 도움 상태 (N-11)
+    NAVIGATION_TRAIL = "NAVIGATION_TRAIL"  # 전이·지시 근거 이력 (N-12)
+    INFERENCE_RESULTS = "INFERENCE_RESULTS"  # 추론 후보·제안·판단 결과 (B-05)
+    PENDING_UTTERANCES = "PENDING_UTTERANCES"  # 대기 중인 확정 발화 (B-02)
+    ARRIVAL_NOTICE = "ARRIVAL_NOTICE"  # 도착 추정 알림 상태 (N-22)
+    # 단말 (help.ended 전달로 정리)
+    PARENT_DEVICE = "PARENT_DEVICE"  # 캡처·좌표·타이머·테두리·상단 띠
+    CHILD_DEVICE = "CHILD_DEVICE"  # 완료 버튼·도착 알림
