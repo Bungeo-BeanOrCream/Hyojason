@@ -59,6 +59,6 @@ HTTP/WS 엔드포인트(`GET /v1/help/current`, `WS /v1/events`)는 아직 없�
 | 자녀 발화와 해석 | `speech.final`, 같은 발화의 `instruction.drafted` 및 `goal.drafted` |
 | 화면 판정과 종료 | `target.located`, `action.assessed`, `arrival.suspected` 또는 `arrival.revoked`, `help.complete` 및 `help.stop` |
 
-프로필은 `NavigationCatalog`에 주입한다. `approved_slots`에는 목표별로 허용하는 서버 검증 함수를 전달한다. [이슈 #3 화면·대상 검토본](../../docs/work/D-issue3-screen-kind-review.md)
+프로필은 `NavigationCatalog`에 주입한다. `approved_slots`에는 목표별로 허용하는 서버 검증 함수를 전달한다. [이슈 #3 화면 관찰 계약](../../docs/screen-observation-profile.md)
 
 서버 간 JSON 대조에는 공통 `to_jsonable`과 `schemas/`를 사용한다. 테스트는 `FIXTURE`로 합성 상위 이벤트를 전달한다. 오디오 전환 평가, STT 종료, 캡처 재관찰은 발행 효과로 검증한다. 실제 오디오, AVD 캡처·표시, Zoro 추론은 담당 노드와 연동해 검증한다.

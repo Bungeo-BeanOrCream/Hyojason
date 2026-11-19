@@ -2,7 +2,7 @@
 
 # 이슈 #3 D 검토본 · screen_kind·의미 전이·target_id
 
-[이슈 #3](https://github.com/Bungeo-BeanOrCream/Hyojason/issues/3)의 A 초안(2026-11-19 댓글)을 D가 검토한 표다. 이슈 제안대로 `docs/work/`에 정리하고, A가 확인하면 PR로 `docs/`에 반영한다. **합의 전 초안**이다.
+[이슈 #3](https://github.com/Bungeo-BeanOrCream/Hyojason/issues/3)의 A 초안(2026-11-19 댓글)을 D가 검토한 기록이다. A가 네 가지 제안에 동의했고 합의된 값은 [화면 관찰 프로필](../screen-observation-profile.md)에 반영했다. [A의 동의 댓글](https://github.com/Bungeo-BeanOrCream/Hyojason/issues/3#issuecomment-7006659871)
 
 근거: [scenarios.md](../scenarios.md) 지원 목표 표, [verification-plan.md](../verification-plan.md) 지시 표본 I01~I20, [contracts.md](../contracts.md) ScreenState·TrailEntry, [B-04](../big-nodes/B-04.md) B04.3.
 

@@ -193,8 +193,9 @@ class NavigationTests(unittest.TestCase):
         self.token = replace(self.token, event_seq=2)
         self.invoke(observation_health="GAP")
         self.token = replace(self.token, projection_epoch="new", event_seq=3)
-        self.observe(None, replace(self.start, projection_epoch="new"))
-        result = self.invoke(directive_record=self.trace, current_instruction_id="ins-1")
+        self.observe(None, replace(self.start, projection_epoch="new", screen_revision=2))
+        result = self.invoke(directive_record=replace(self.trace, current_screen_revision=2),
+                             current_instruction_id="ins-1")
         self.assertEqual(result.outcome, "directive_recorded")
         self.assertEqual([r.projection_epoch for r in self.trail.directives], ["epoch", "new"])
 

@@ -28,7 +28,7 @@
 
 ## 다음 할 일
 
-1. 이슈 #3의 [D 검토본](D-issue3-screen-kind-review.md)을 A와 확정한 뒤 공식 문서와 운영 프로필에 반영.
+1. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
 2. 이슈 #2: 서버는 Python, 타입 공유는 `server/session/schemas/` JSON Schema로 답하기.
 3. [계약 추가 제안](D-role-view-contract.md)을 A·B·C와 확인 → `docs/contracts.md` PR.
 4. N-22·N-23에서 도착 추정·종료 승인과 후속 정리를 연동.

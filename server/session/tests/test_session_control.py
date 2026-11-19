@@ -22,7 +22,7 @@ class SessionFlow(TestCase):
         self.ids = count(1)
         self.catalog = NavigationCatalog(
             screen_apps={"settings_home": "settings", "settings_display": "settings", "settings_sound": "settings"},
-            target_ids={"settings.display"}, evidence_codes={"STABLE_CONTROLS", "VISIBLE_LABEL"},
+            target_ids={"settings.display"}, evidence_codes={"STABLE_CONTROLS", "VISIBLE_LABEL", "timeout_10m_selected"},
             reversible_pairs={("settings_home", "settings_sound"), ("settings_home", "settings_display")},
         )
         self.control = SessionControl(
@@ -45,10 +45,10 @@ class SessionFlow(TestCase):
         self.assertEqual(update.state.status, "success", update.state.diagnostics)
         return update
 
-    def screen(self, kind, revision, **extra):
+    def screen(self, kind, revision, *, evidence_codes=("STABLE_CONTROLS",), **extra):
         return self.emit(
             "screen.observed", "PARENT", projection_epoch="capture", screen_revision=revision,
-            screen_kind=kind, target_ids=["settings.display"], evidence_codes=["STABLE_CONTROLS"],
+            screen_kind=kind, target_ids=["settings.display"], evidence_codes=evidence_codes,
             observation_health="ACTIVE", **extra,
         )
 
@@ -147,7 +147,8 @@ class SessionFlow(TestCase):
     def test_verified_control_change_updates_trace_without_a_navigation_edge(self):
         self.screen("settings_display", 1)
         self.turn(1)
-        same_screen = self.screen("settings_display", 2, from_screen_revision=1)
+        same_screen = self.screen("settings_display", 2, from_screen_revision=1,
+                                  evidence_codes=["STABLE_CONTROLS", "timeout_10m_selected"])
         self.assertEqual(same_screen.navigation.outcome, "unmodified")
         self.assertIsNone(self.control.trail.gap_after_seq)
         self.assertEqual(self.control.trail.anchor.screen_revision, 2)

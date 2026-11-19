@@ -159,6 +159,7 @@ class _State:
     latest_child_seq: int | None = None
     draft_kinds: frozenset[str] = frozenset()
     previous_screen_revision: int | None = None
+    last_screen_meaning: tuple[str, frozenset[str]] | None = None
     observation_fence: int = 0
     arrival_id: str | None = None
     used_epochs: frozenset[str] = frozenset()
@@ -212,6 +213,12 @@ _PUBLISHERS = {
 }
 _ROLES = frozenset({"PARENT", "CHILD"})
 _GOALS = {"SET_FONT", "SET_TIMEOUT", "CLOCK_ALARM", "MAP_ROUTE", "SMS_SEND", "MAIL_OPEN"}
+# Agreed N-10 state evidence (docs/work/D-issue3-screen-kind-review.md).
+# Visible labels, layout movement and target IDs are not semantic state.
+_STATE_EVIDENCE = frozenset({
+    "font_scale_changed", "timeout_10m_selected", "alarm_card_active", "alarm_next_tomorrow",
+    "route_shown", "sms_sent_status", "mail_detail_open",
+})
 
 
 class HelpSession:
@@ -359,7 +366,8 @@ class HelpSession:
             _require(epoch not in state.used_epochs, "STALE_BASIS")
             state.used_epochs |= {epoch}
             state.previous_screen_revision = None
-            state.update(projection_epoch=epoch, screen_revision=None, screen=None, observation_health="GAP")
+            state.last_screen_meaning = None
+            state.update(projection_epoch=epoch, screen=None, observation_health="GAP")
         elif kind == "screen.observed":
             self._observe(state, p, basis, effects)
         elif kind in ("target.located", "action.assessed"):
@@ -451,6 +459,7 @@ class HelpSession:
         state.rollover_basis = None
         state.draft_kinds = frozenset()
         state.previous_screen_revision = None
+        state.last_screen_meaning = None
         state.arrival_id = None
         state.used_epochs = frozenset()
         state.update(help_state="ENDED", end_reason=s.end_reason or reason,
@@ -537,10 +546,11 @@ class HelpSession:
             _basis(s, basis, "screen_revision")
             # No screen content is consumed on a protected or empty observation.
             state.previous_screen_revision = None
+            state.last_screen_meaning = None
             state.observation_fence = s.event_seq + 1
             state.update(screen=None, observation_health=health)
             if health in ("STOPPED", "NOT_GRANTED"):
-                state.update(projection_epoch=None, screen_revision=None, trail_cursor=0)
+                state.update(projection_epoch=None, trail_cursor=0)
                 effects.append(("trail.clear", "SERVER"))
             effects.append(("guide.suspend", "PARENT"))
             return
@@ -552,13 +562,18 @@ class HelpSession:
             _uint(before)
         screen = ScreenState(s.projection_epoch, revision, p["screen_kind"],
                              _codes(p["target_ids"], self._targets), _codes(p["evidence_codes"], self._evidence))
-        if s.screen and s.screen_revision == revision:
-            _require(s.screen.screen_kind == screen.screen_kind, "STALE_BASIS")
-        else:
+        meaning = (screen.screen_kind, _STATE_EVIDENCE.intersection(screen.evidence_codes))
+        if s.screen_revision is not None:
+            # An actual capture gap forgets the last meaning, so the first fresh
+            # sample must advance even for the same screen. A hangup retains it.
+            changed = meaning != state.last_screen_meaning
+            _require((revision > s.screen_revision) == changed, "STALE_BASIS")
+        if s.screen_revision != revision:
             continuous = (s.screen is not None and before == s.screen_revision and revision == before + 1
                           and screen.evidence_codes
                           and self._screen_apps[s.screen.screen_kind] == self._screen_apps[screen.screen_kind])
             state.previous_screen_revision = before if continuous else None
+        state.last_screen_meaning = meaning
         state.update(screen=screen, screen_revision=revision, observation_health="ACTIVE")
 
     @staticmethod

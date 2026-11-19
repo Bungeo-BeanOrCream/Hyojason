@@ -16,7 +16,7 @@ class ReducerTests(TestCase):
         self.session = HelpSession(
             "family", "call", "help",
             screen_apps={"settings_home": "settings", "settings_display": "settings", "clock_alarm_list": "clock"},
-            target_ids={"settings.display"}, evidence_codes={"VISIBLE"},
+            target_ids={"settings.display"}, evidence_codes={"VISIBLE", "timeout_10m_selected"},
             approved_slots={"SET_FONT": lambda slots: slots == {"steps": 1}},
         )
         self.ids = count()
@@ -60,10 +60,10 @@ class ReducerTests(TestCase):
                    if kind == "instruction" else {"goal_id": "SET_FONT", "approved_slots": {"steps": 1}})
         return self.send(kind + ".drafted", source_utterance_id=f"turn-{seq}", **payload, **opts)
 
-    def screen(self, revision=1, kind="settings_home", **extra):
-        return self.send("screen.observed", "PARENT", projection_epoch="epoch", screen_revision=revision,
-                         observation_health="ACTIVE", screen_kind=kind, target_ids=["settings.display"],
-                         evidence_codes=["VISIBLE"], **extra)
+    def screen(self, revision=1, kind="settings_home", *, evidence_codes=("VISIBLE",), **extra):
+        return self.send("screen.observed", "PARENT", projection_epoch=self.basis.projection_epoch,
+                         screen_revision=revision, observation_health="ACTIVE", screen_kind=kind,
+                         target_ids=["settings.display"], evidence_codes=evidence_codes, **extra)
 
     def location(self):
         return dict(location_kind="visible", target_id="settings.display", anchor_screen_revision=1,
@@ -219,10 +219,34 @@ class ReducerTests(TestCase):
         self.reject("STALE_BASIS", "screen.observed", "PARENT", basis=old, screen_revision=1,
                     projection_epoch="epoch", screen_kind="settings_home", observation_health="ACTIVE",
                     target_ids=[], evidence_codes=["VISIBLE"])
-        self.screen()
+        self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=1,
+                    screen_kind="settings_home", observation_health="ACTIVE", target_ids=[], evidence_codes=[])
+        self.screen(2)
         revoked = self.send("screen.observed", "PARENT", observation_health="STOPPED")
         self.assertIn("trail.clear", self.effects(revoked))
         self.reject("STALE_BASIS", "projection.started", "PARENT", projection_epoch="epoch")
+        self.send("projection.started", "PARENT", projection_epoch="next")
+        self.assertEqual(self.basis.screen_revision, 2)
+        for stale_revision in (0, 1, 2):
+            self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=stale_revision,
+                        screen_kind="settings_home", observation_health="ACTIVE", target_ids=[], evidence_codes=[])
+        self.screen(3)
+        self.send("projection.started", "PARENT", projection_epoch="renewed")
+        self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=3,
+                    screen_kind="settings_home", observation_health="ACTIVE", target_ids=[], evidence_codes=[])
+        self.screen(4)
+
+    def test_real_capture_gap_still_requires_new_revision_after_hangup(self):
+        self.send("projection.started", "PARENT", projection_epoch="epoch")
+        self.screen(5)
+        self.speech(1)
+        self.draft(1, "goal")
+        self.send("screen.observed", "PARENT", observation_health="GAP")
+        self.assertEqual(self.basis.screen_revision, 5)
+        self.send("call.ended")
+        self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=5,
+                    screen_kind="settings_home", observation_health="ACTIVE", target_ids=[], evidence_codes=[])
+        self.screen(6)
 
     def test_goal_arrival_requires_fresh_post_call_screen(self):
         self.send("projection.started", "PARENT", projection_epoch="epoch")
@@ -260,13 +284,18 @@ class ReducerTests(TestCase):
 
     def test_verified_control_change_within_a_screen_can_close_instruction(self):
         self.send("projection.started", "PARENT", projection_epoch="epoch")
-        self.screen()
+        self.screen(kind="settings_display")
         self.speech(1)
         self.draft(1)
-        self.screen()  # A layout-only observation keeps the semantic revision.
+        layout = dict(screen_kind="settings_display", observation_health="ACTIVE", target_ids=[], evidence_codes=[])
+        self.send("screen.observed", "PARENT", screen_revision=1, **layout)
+        self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=2, **layout)
+        self.reject("STALE_BASIS", "screen.observed", "PARENT", screen_revision=1, **{
+            **layout, "evidence_codes": ["timeout_10m_selected"],
+        })
         self.reject("STALE_BASIS", "action.assessed", verdict="CORRECT", instruction_revision=1,
                     from_screen_revision=1, to_screen_revision=1, evidence_codes=["VISIBLE"])
-        self.screen(2, "settings_home", from_screen_revision=1)
+        self.screen(2, "settings_display", evidence_codes=["timeout_10m_selected"], from_screen_revision=1)
         self.send("action.assessed", verdict="CORRECT", instruction_revision=1,
                   from_screen_revision=1, to_screen_revision=2, evidence_codes=["VISIBLE"])
         self.assertIsNone(self.session.snapshot.instruction)
