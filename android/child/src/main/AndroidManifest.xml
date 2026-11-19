@@ -1,1 +1,16 @@
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 부모·자녀 공용 앱 진입점 (N-01 연결 → N-02 동의 → N-03 통화) -->
+        <activity
+            android:name="com.hyojason.app.child.HomeActivity"
+            android:exported="true"
+            android:label="효자손"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
