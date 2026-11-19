@@ -21,6 +21,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":contract"))
     implementation(project(":observer"))
     testImplementation("junit:junit:4.13.2")
 }

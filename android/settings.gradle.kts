@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Hyojason"
-include(":observer", ":overlay")
+include(":app", ":contract", ":observer", ":overlay", ":rtc", ":child")
