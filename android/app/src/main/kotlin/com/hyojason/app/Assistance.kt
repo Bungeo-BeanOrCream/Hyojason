@@ -110,8 +110,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                     setOf(FeatureKey(FeatureKind.TEXT, "Play 스토어"), FeatureKey(FeatureKind.TEXT, "Chrome")),
                     setOf(FeatureKey(FeatureKind.TEXT, "Gmail"), FeatureKey(FeatureKind.TEXT, "YouTube")),
                     setOf(FeatureKey(FeatureKind.TEXT, "캘린더"), FeatureKey(FeatureKind.TEXT, "주소록"))),
-                    targets = screen.targets + ("launcher.maps" to TargetRule(setOf(
+                    // The app list repeats recent apps in a suggestion row: take the topmost copy.
+                    targets = (screen.targets + ("launcher.maps" to TargetRule(setOf(
                         FeatureKey(FeatureKind.TEXT, "지도"), FeatureKey(FeatureKind.TEXT, "Maps")))))
+                        .mapValues { (_, rule) -> rule.copy(topmostOfDuplicates = true) })
                 "settings_display" -> screen.copy(anchors = screen.anchors + listOf(
                     setOf(label, FeatureKey(FeatureKind.TEXT, "밝기 수준"))))
                 else -> screen
