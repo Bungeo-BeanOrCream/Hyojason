@@ -257,3 +257,28 @@ def test_06_4_consent_revoked_or_changed_mid_turn():
     assert _err(f.finalize(_fin(1), revoked, **T)) == "STALE_BASIS"
     assert _err(f.finalize(_fin(1, rev=1), OK, **T)) == "STALE_BASIS"  # STT 시작 뒤 동의 버전이 바뀜
     assert f.finalize(_fin(1), OK, **T).outcome == "final_committed"
+
+
+# ---- worker: RTZR 이벤트 → N-05 ----
+
+
+def test_worker_maps_rtzr_events_and_hides_text(capsys):
+    import asyncio
+
+    from livekit.agents import stt as lkstt
+
+    from hyojason_voice.worker import _recognize
+
+    def ev(t, text):
+        return lkstt.SpeechEvent(type=t, alternatives=[lkstt.SpeechData(language="ko", text=text)])
+
+    async def fake():
+        yield lkstt.SpeechEvent(type=lkstt.SpeechEventType.START_OF_SPEECH)
+        yield ev(lkstt.SpeechEventType.INTERIM_TRANSCRIPT, "디스플")
+        yield ev(lkstt.SpeechEventType.FINAL_TRANSCRIPT, "디스플레이 눌러 줘")
+        raise ConnectionError("rtzr down")
+
+    asyncio.run(_recognize(Role.CHILD, "c1", fake(), show_text=False))
+    out = capsys.readouterr().out.splitlines()
+    assert out == ["[CHILD] transcribed FINAL HIGH (10자)", "[CHILD] error DEPENDENCY_UNAVAILABLE: ConnectionError"]
+    assert "디스플" not in "\n".join(out)  # --print-text 없으면 원문 없음

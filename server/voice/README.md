@@ -33,6 +33,16 @@ D가 main에 합쳐지면 `PYTHONPATH` 설정과 worktree가 필요 없다(`pypr
 | `finalize.py` | N-06 중복·역순·종료 후 결과 차단, 자녀 발화만 triggered | FIXTURE |
 | `events.py` | `call.invite/accepted/connected/ended`, `speech.final` 봉투 | — |
 | `app.py` | 제어 엔드포인트 + dev 텍스트 입력 스텁 | FIXTURE |
+| `worker.py` | 방에 숨은 참가자로 들어가 역할별 마이크를 RTZR로 인식, 콘솔 출력 (N-04→N-05) | LIVE 확인 전 |
+
+## STT worker (콘솔 확인)
+
+서버와 같은 셸 준비(`PYTHONPATH`, `.env`) 뒤, 통화가 수락된 `call_id`로 실행한다. 브라우저/AVD가 같은 방에 들어와 있어야 한다.
+
+```bash
+.venv/bin/python -m hyojason_voice.worker <call_id> --print-text   # --print-text는 dev 전용 (원문 출력)
+.venv/bin/python -m hyojason_voice.worker <call_id> --no-keywords  # 키워드 부스팅 끄고 비교
+```
 
 ## 텍스트 입력 스텁 (C·D용)
 

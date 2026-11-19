@@ -14,7 +14,9 @@ from hyojason_session.common.result import Basis, ErrorCode, NodeResult, NodeRun
 
 from .common import partial
 
-MIN_CONFIDENCE = 0.6  # 이 미만 확정문은 transcript_uncertain. 업체 정해지면 실측으로 조정
+MIN_CONFIDENCE = 0.6  # 이 미만 확정문은 transcript_uncertain.
+# 주의: RTZR 스트리밍(livekit-plugins-rtzr 1.8)은 confidence를 주지 않아 지금은 이 판정이 걸리지 않는다.
+# 잡음·겹침을 uncertain으로 거를 다른 기준(짧은 문장 등)은 실측 뒤 정한다.
 
 
 class SttKind(StrEnum):
