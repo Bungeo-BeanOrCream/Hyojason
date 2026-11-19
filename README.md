@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/74e8a051-8bce-4154-ac7e-cc36668956bf
+
 # 효자손 · Hyojason
 
 **가족이 통화 중 말해 준 버튼을 3초 안에 누르지 못하면, 화면에서 찾아 짚어 주는 Android Agent입니다.**
