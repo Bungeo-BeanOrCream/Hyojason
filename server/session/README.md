@@ -53,7 +53,7 @@ uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 | `hyojason_session/demo_fixtures.py` | **N-24** AVD·앱·시나리오 준비 점검 |
 | `hyojason_session/demo_evaluation.py` | **N-25** V-01~V-07 판정과 V-08 모델·비용 확인 |
 | `hyojason_session/demo_verify.py` | N-24·N-25 JSON 실행 도구 ([예시와 리허설 절차](../../demo/fixtures/README.md)) |
-| `hyojason_session/api/` | **FastAPI 제어 서버**: `app.py`(경로), `hub.py`(통화·연결·송신), `wire.py`(봉투·권한·오류 코드), `catalog.py`(화면 프로필·목표 슬롯) |
+| `hyojason_session/api/` | **FastAPI 제어 서버**: `app.py`(경로), `hub.py`(통화·연결·송신), `wire.py`(봉투·권한·오류 코드), `catalog.py`(화면 프로필·목표 슬롯), `assist.py`(B-05 판단 연결: D → C → D, 결과를 지원 대상에 `assist.decision`으로 전달. 통합 진입점 `server/mvp.py`가 사용) |
 | `hyojason_session/views.py` | RoleSnapshot·ParentView·ChildView ([제안서](../../docs/work/D-role-view-contract.md)) |
 | `hyojason_session/client_resume_gate.py` | N-13 클라이언트 규칙 참조 구현 (Android Kotlin 이식용, 서버에서 실행 안 함) |
 | `hyojason_session/client_cleanup.py` | N-23 클라이언트 규칙 참조 구현 (부모 로컬 우선 정리, 완료 문구 1회) |

@@ -12,4 +12,5 @@ dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# 판단 연결(hyojason_session.api.assist)이 C의 server/agent를 import한다
+pythonpath = [".", "../.."]
