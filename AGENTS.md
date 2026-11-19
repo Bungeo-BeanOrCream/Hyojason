@@ -40,7 +40,13 @@
 - 필요한 증거를 못 얻으면 `UNVERIFIED`로 남긴다. 완료·완주 수에 넣지 않는다.
 - 실기기·AVD·실모델이 필요한 항목은 에이전트가 단독으로 PASS를 선언하지 않고 사람의 확인을 요청한다.
 - 케이스 ID(`docs/verification-plan.md`, 각 노드 문서의 테스트 표)를 테스트 이름과 커밋 메시지에 쓴다.
-- 테스트 실행 명령은 모듈 골격이 정해지면(이슈 #1) 여기에 추가한다.
+- Android 테스트·빌드는 `android/`에서 실행한다(JDK 17+, Android SDK Platform 35, Build Tools 35.0.0). 자세한 설정은 `android/README.md`.
+
+```powershell
+.\gradlew.bat :contract:test :observer:testDebugUnitTest :overlay:testDebugUnitTest :rtc:testDebugUnitTest :child:testDebugUnitTest :app:assembleDebug
+```
+
+- Windows에서 프로젝트·SDK 경로에 한글이 있으면 빌드가 실패할 수 있다. 사용 중이지 않은 드라이브 문자에 `subst`로 레포 상위 폴더를 연결한 뒤 그 경로에서 실행하고, `ANDROID_HOME`도 그 드라이브 기준으로 맞춘다.
 
 ## Git·PR 규칙
 
@@ -58,6 +64,6 @@
 
 ## 열려 있는 결정 (이슈)
 
-- #1 Android 골격·패키지명·SDK 버전
-- #2 공통 타입(NodeResult 등)의 Kotlin 위치
 - #3 screen_kind 값 목록·의미 전이·target_id 안정성 (A↔D)
+- #5 N-24·N-25 라이브 리허설 증거 연동 (B-08)
+- #6 통화 발신 방향과 안내 대상(`assisted_role`) 분리
