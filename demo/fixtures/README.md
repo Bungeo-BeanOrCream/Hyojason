@@ -35,6 +35,12 @@ python -m hyojason_session.demo_verify evaluate ../../demo/fixtures ../../demo/f
 
 두 AVD를 만들고 상태를 읽어 로컬 매니페스트를 채우는 도구다. 결과 파일은 `demo/fixtures/local/`에 두며 git에 올리지 않는다.
 
+**시연 기계는 팀 Apple Silicon Mac이다**(D-status 결정 메모 11). 그 Mac의 저장소 루트에서 다음 한 줄로 아래 1)~2)를 한다. Android Studio의 'Android SDK Command-line Tools'와 Python 3.11 이상이 필요하고, 시스템 이미지를 내려받는다.
+
+```sh
+bash demo/fixtures/setup_avd_mac.sh
+```
+
 ```sh
 cd server/session
 # 1) 호스트에 맞는 AVD 생성·실행 명령 확인 (설계 기준은 ARM64 Mac. x86_64 호스트면 이미지 차이를 기록)

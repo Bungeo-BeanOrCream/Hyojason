@@ -69,6 +69,8 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 기본값(부모)에서는 기존 동작과 같다. 타입·필드 이름(ParentView/ChildView, 메서드 이름)은 A처럼 #6 합의 뒤 한 번에 역할 중립 이름으로 바꾼다.
    - 남은 팀 결정: assisted_role 도입과 기본값, 완료 권한, 자녀 발신 P0(지금 D 서버는 부모 발신만), Basis·contracts.md 변경. D 의견: Basis에 새 키는 필요 없다(임시 연결 = help_id, assisted_role은 help_id에 고정, 캡처는 projection_epoch).
 
+11. **시연 기계는 팀 Apple Silicon Mac — 결정(2026-11-19, 사용자).** 설계(ARM64 AVD, 같은 Mac에 두 AVD)대로 간다. 그 Mac에서 `bash demo/fixtures/setup_avd_mac.sh` 한 번으로 AVD 두 대(부모 5554·자녀 5556, Android 15·ko-KR·Asia/Seoul) 생성·부팅·상태 수집까지 한다. 최종 리허설과 시연을 같은 기계에서 해 N-25 기록의 기기 정보가 시연과 일치하게 한다. 어느 팀원의 Mac인지는 아직 모른다.
+
 ## 다음 할 일
 
 1. **제어 서버 — 뼈대 완료, 남은 연결.** FastAPI 뼈대(결정 메모 7)에 수신·송신 경로와 N-21 화면 재전송까지 들어갔다. 남은 것:
@@ -80,7 +82,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 4. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
 5. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
 6. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
-7. **시연 AVD 준비 (N-24)**: 시연 기계를 정하고(설계 기준 ARM64 Mac, 이 PC는 x86_64 Windows·Android SDK 없음) `demo_env avd-plan` 명령으로 두 AVD 생성 → `collect`로 로컬 매니페스트 → 사람 확인 항목 채우기 → `demo_verify prepare --source LIVE`. 효자손 APK(A·B)가 나오기 전에는 `ROLE_APP_NOT_READY`로 막힌다.
+7. **시연 AVD 준비 (N-24)**: 팀 Mac(결정 메모 11)에서 `setup_avd_mac.sh` 실행 → 사람 확인 항목 채우기 → `demo_verify prepare --source LIVE`. 효자손 APK(A·B)가 나오기 전에는 `ROLE_APP_NOT_READY`로 막힌다.
 8. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
 
 ## 하면 안 되는 일
@@ -95,7 +97,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
-- 시연 기계 미정: 설계는 ARM64 Mac AVD 두 대. 이 PC(x86_64 Windows)에는 Android SDK가 없고, 쓰려면 SDK·시스템 이미지 다운로드가 필요하다.
+- 시연용 팀 Mac의 담당자·기종(Apple Silicon 여부)이 아직 확인되지 않음. 확인되면 그 Mac에서 `setup_avd_mac.sh` 실행.
 - 이슈 #6: 지원 대상 방식·완료 권한·자녀 발신·Basis는 팀 합의 대기 (A·B는 의견 남김, C 대기).
 - 이슈 #10: 엔드포인트 분담에 대한 B 동의, B 판단 함수 위치, 인증 토큰 형식 답변 대기. 그 전에는 페어·통화 자리에 Mock.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
