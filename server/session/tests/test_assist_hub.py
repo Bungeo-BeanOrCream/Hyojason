@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import threading
 from unittest import TestCase
 
 from hyojason_session.api.assist import AssistedSessionHub
@@ -31,11 +32,14 @@ class _Hub(AssistedSessionHub):
 class AssistHubTests(TestCase):
     def setUp(self):
         self.requests = []
+        self.goal_gate: threading.Event | None = None  # 설정하면 GOAL 판단이 이 신호까지 기다린다
 
         def transport(payload, timeout):
             self.requests.append(payload)
             criteria = payload["request"]["questions"]["decision"]["criteria"]
             if "NONE" in criteria:  # GOAL
+                if self.goal_gate is not None:
+                    self.goal_gate.wait(5)
                 latest = payload["request"]["state"]["conversation"][-1]["text"]
                 goal = "MAIL_OPEN" if "메일" in latest else "SMS_SEND" if "문자" in latest else "NONE"
                 return fake_response(payload, goal)
@@ -104,6 +108,40 @@ class AssistHubTests(TestCase):
         self.assertEqual(decisions[-1]["payload"]["target"]["target_id"], "settings.display")
         self.assertTrue(decisions[-1]["payload"]["decision_id"])  # guide.shown 확인용 (PR #29)
         self.assertEqual(control.snapshot.instruction.target_key, "settings.display")
+
+    def test_B05_2_instruction_applies_before_goal_model_returns(self):
+        """지시 초안은 Zoro 목표 판단(GOAL)을 기다리지 않고 반영되고, 늦게 온 같은 초안은 중복으로 무시된다."""
+        self.goal_gate = gate = threading.Event()
+        seen = {}
+
+        async def scenario(control):
+            self.hub._apply(control, "projection.started", "PARENT", {"projection_epoch": "epoch"})
+            self.hub._apply(control, "screen.observed", "PARENT", {
+                "projection_epoch": "epoch", "screen_revision": 1, "observation_health": "ACTIVE",
+                "screen_kind": "settings_home", "target_ids": ["settings.display"], "evidence_codes": []})
+            await self.drain()
+            self.seq["CHILD"] += 1
+            call_id = control.snapshot.call_id
+            self.hub.apply_server_event(call_id, {"type": "speech.final", "payload": {
+                "utterance_id": "CHILD-1", "utterance_seq": 1, "speaker_role": "CHILD",
+                "text": "디스플레이 눌러 줘", "call_id": call_id, "source": "manual_test"}})
+            try:
+                async with asyncio.timeout(3):
+                    while control.snapshot.instruction is None:
+                        await asyncio.sleep(0.01)
+                seen["goal_pending"] = not gate.is_set()
+                seen["revision"] = control.snapshot.instruction_revision
+            finally:
+                gate.set()
+            await self.drain()
+
+        control, events = self.run_call(scenario)
+        self.assertTrue(seen["goal_pending"])
+        self.assertEqual(control.snapshot.instruction.target_key, "settings.display")
+        # 최종 결과에 담긴 같은 초안이 지시 버전을 한 번 더 올리지 않는다.
+        self.assertEqual(control.snapshot.instruction_revision, seen["revision"])
+        decisions = [event for event in events if event["type"] == "assist.decision"]
+        self.assertEqual(decisions[-1]["payload"]["target"]["target_id"], "settings.display")
 
     def test_no_model_call_without_analysis_consent(self):
         self.hub.allowed = False

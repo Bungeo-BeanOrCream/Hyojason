@@ -162,9 +162,16 @@ class AssistedSessionHub(SessionHub):
         task.add_done_callback(self.tasks.discard)
 
     async def _evaluate(self, control, request: B05Input) -> None:
+        loop = asyncio.get_running_loop()
+
+        def early_instruction(draft) -> None:
+            # 작업 스레드에서 불린다. 상태 반영과 그 뒤의 판단 예약(create_task)은 이벤트 루프에서 한다.
+            loop.call_soon_threadsafe(self._publish_instruction, control, request, draft)
+
         try:
             result = await asyncio.to_thread(self.workflow.run, request,
-                                             read_current=lambda: self.agent_snapshot(control))
+                                             read_current=lambda: self.agent_snapshot(control),
+                                             on_instruction=early_instruction)
             log.info("agent %s %s: %s %s", result.diagnostics.source, request.event, result.status,
                      result.outcome or result.diagnostics.terminal_error.code)
             if result.data is not None:
@@ -174,6 +181,22 @@ class AssistedSessionHub(SessionHub):
                 log.exception("fixture agent integration failed")
             else:
                 log.error("agent integration failed: %s", type(error).__name__)
+
+    def _publish_instruction(self, control, request, draft) -> None:
+        """N-15의 지시 초안을 Zoro 목표 판단(최대 1초)을 기다리지 않고 instruction.drafted로 반영한다.
+
+        최종 결과에 같은 초안이 다시 오면 N-11이 같은 발화의 지시로 보고 duplicate_ignored로 무시한다.
+        """
+        try:
+            if not is_current(request, self.agent_snapshot(control)):
+                return
+            self._apply(control, "instruction.drafted", "SERVER", asdict(draft),
+                        basis=SessionBasis(**asdict(request.snapshot.basis)))
+        except Exception as error:  # 발화 원문은 로그에 남기지 않는다.
+            if self._source is Source.FIXTURE:
+                log.exception("fixture early instruction failed")
+            else:
+                log.error("early instruction failed: %s", type(error).__name__)
 
     def _publish_result(self, control, request, data) -> None:
         if not is_current(request, self.agent_snapshot(control)):
