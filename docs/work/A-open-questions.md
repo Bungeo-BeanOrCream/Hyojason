@@ -46,13 +46,32 @@
 - 검증 화면이 여러 개 열려도 프로세스에서 테스트 테두리 하나만 유지한다. 어느 검증 화면에서든 제거할 수 있고, 권한 설정으로 이동할 때 먼저 제거한다. [Android 터치 전달 규칙](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_NOT_TOUCHABLE)
 - 골격 브랜치의 API 35 debug·release APK와 JVM 계약 테스트 5개를 확인했다. release APK 매니페스트에 검증 Activity, 화면 캡처 서비스, 오버레이 권한이 없다. 실제 AVD의 하위 앱 터치 전달은 `UNVERIFIED`다.
 
+## 이슈 #6 지원 대상 선택: 현재 구현 확인 (변경 없음, 2026-11-19)
+
+코드 기준 확인만 했고 이름·동작은 바꾸지 않았다. 근거 파일은 `android/` 아래다.
+
+1. **통화 종료와 재연결 구분, RTC 의존**
+   - `observer`·`overlay` 메인 코드는 RTC·LiveKit 타입을 import하지 않는다. 관찰·게이트는 RTC 연결 상태를 직접 보지 않고 `help_id`, `mode_revision`, `projection_epoch`, `screen_revision` 같은 basis로만 움직인다.
+   - `ParentResumeGate`(`overlay/.../gate/ParentResumeGate.kt`)는 "통화 종료"를 따로 구분하지 않는다. 서버가 준 `ParentReconnect`(재접속 응답)만 받아 표시·타이머·도움 캐시를 비우고, `latestBasis.help_id`가 같으면 같은 도움의 재접속으로 이어간다(지시 ID 보존). `help_id`가 없거나 달라지면 `GateClock.clear()`와 캐시 폐기를 한다.
+   - 통화 종료 → `POST_CALL_AGENT` 전환은 `GateClock.applyMode`가 `mode_revision`으로 처리한다. 즉 모드는 RTC 상태가 아니라 서버가 내린 모드 이벤트에 의존한다.
+   - 주의: `GuideGate.agrees()`(`GuideGate.kt:142`)가 후보의 `call_id`가 최신 basis의 `call_id`와 다르면 오래된 것으로 거부한다. 같은 도움에서 새 통화가 시작돼 `call_id`가 바뀌면 이전 후보는 `STALE_BASIS`가 된다. #6에서 연결 식별자를 Basis에 넣으면 이 비교와 같이 정리해야 한다.
+2. **도움 종료 때만 캡처 중지·표시 폐기하는 진입점**
+   - 캡처 중지: `ProjectionCaptureService.stop(helpId, epoch, diagnostic)` → `ProjectionSession.stop`. 시스템 공유 중지는 `onSystemStop` 콜백으로 같은 경로를 탄다. 통화 종료로는 호출되지 않는다.
+   - Overlay·타이머·제안 폐기는 **하나로 묶인 진입점이 없다.** `GateClock.clear()`/`cancelTimer()`, `ParentResumeGate`의 `clearDisplay`·`cancelScheduledTimer`·`clearHelpCache` 콜백, `ParentGuideSuppression`이 각각 흩어져 있고, 부모 통합 앱(B가 채울 `:app`)이 직렬 이벤트 루프에서 순서대로 호출하는 구조다. "도움 종료" 이벤트 하나로 위 셋을 한꺼번에 부르는 함수는 아직 없다. 필요하면 별도 지시로 만든다(이번에는 만들지 않았다).
+3. **새 도움 = 새 `projection_epoch` → 이전 응답 `STALE_BASIS`**
+   - 새 승인마다 새 epoch를 발급한다(`ProjectionSession.open`의 `newEpoch`). 테스트 존재: `ProjectionSessionTest.newApprovalCreatesFreshEpochAndClosesThePreviousSource`(새 epoch·이전 소스 닫힘), `newestFrameWinsAndOtherEpochIsWiped`, `FrameDetectionTest`의 구 epoch 프레임 `STALE_BASIS`(171행), `ScreenStabilizerTest`의 구 epoch `STALE_BASIS`(81행)와 `B03_2_newEpochUsesPreviousScreenRevisionWithoutReset`.
+   - 없는 것: **새 도움 시작 → 이전 도움의 기존 안내 응답이 `GuideGate`에서 `STALE_BASIS`로 폐기되는 통합 테스트**는 별도로 없다. `GuideGateTest:115`가 STALE_BASIS를 확인하지만 epoch 불일치 단독 케이스인지는 보강 확인이 필요하다. 실기기 재승인 흐름은 `UNVERIFIED`다.
+4. **"부모 기기" 고정 표현 목록 (변경 안 함)**
+   - 코드(`*.kt`)에는 한글 "부모 기기" 문자열이 없다. 이름에 박힌 것은 `ParentResumeGate`, `ParentReconnect`, `ParentGuideSuppression`(`overlay/.../gate/`), `ParentRunEvidence.kt`의 `ParentRun`·`ParentTiming`·`ParentObservation`(`app/.../debug/`)이고, 증거의 `clock_id`가 `parent_monotonic`이다.
+   - 문서: `README.md:14`, `docs/architecture.md:15`·`:22`, `docs/implementation-contract.md:43`("부모 단말"), `docs/instruction-policy.md:22`("부모 단말"), `docs/small-nodes/N-02.md:60`, `docs/small-nodes/N-09.md:57`. 파일명·표현 변경은 #6 합의 후 별도 지시로 한다.
+
 ## 진행 상태
 
-- 현재 상태: 골격 후보 `e8f2d1a`의 API 35 빌드와 계약 테스트 5개를 확인하고, 사용자 승인 후 `origin/A-gradle-skeleton`에 푸시했다. 원격 HEAD가 로컬과 일치한다. 기능 작업용 `A`는 실제 N-07 연결이 있는 debug 앱을 포함하며, 앱·라이브러리 빌드와 JVM 테스트 43개를 확인했다. 두 체크아웃의 APK 경로는 각각 `android/app/build/outputs/apk/debug/app-debug.apk`다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
-- 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 사용자 확인 후 골격 브랜치의 보안 수정 `e32106f`를 푸시한다. 푸시 확인 후 `main` 대상 이슈 #1·#2 골격 PR을 별도로 승인받아 연다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
-- 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리.
-- 막힌 것: 골격 보안 수정 푸시 승인 사전 확인. N-07의 Android 15 동작 확인 대기.
+- 현재 상태: 현재 담당 Claude(2026-11-19, Codex 5시간 제한으로 인계). `A`에서 추가 지시 4(`ParentRunEvidence`, `60d10b6`)와 골격 보안 수정 반영(`6ad1ea3`)을 커밋했고, 추가 지시 5(#6 확인)를 이 문서에 기록했다. 앱·라이브러리 assembleDebug와 JVM 테스트(app 7개 추가 포함) 통과. 골격 브랜치 `A-gradle-skeleton`은 `e32106f`까지 로컬이며 푸시 승인 대기. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. Windows 한글 경로에서는 상위 폴더를 임시 드라이브 문자(`subst`)에 연결해 실행한다. SDK는 체크아웃 바깥의 `.android-sdk`를 사용한다.
+- 다음 할 일: 사용자 확인 후 `e32106f` 푸시 → 골격 PR(#1·#2) 별도 승인. Android 15 AVD에서 N-07 승인·전환·중지·재승인 확인(사람 몫) 뒤 단계 6 N-20 구현. `trace_id` 발급 주체(D 답변)가 정해지면 주입 방식 확정.
+- 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경.
+- 막힌 것: 골격 보안 수정 푸시 승인, N-07 Android 15 실동작 확인, `trace_id` 발급 주체 답변.
 
 ## AGENTS.md 테스트 실행 명령 제안
 
