@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
+import android.util.Log
 import android.provider.Settings
 import android.view.View
 import android.widget.LinearLayout
@@ -506,7 +507,9 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             if (awaitingVerdict) InputEvidence.PENDING else InputEvidence.CONTINUOUS_NO_CHANGE,
             target, verdict, recovery, proposal, policyDenied = value.stringOrNull("warning") != null)
         val diagnostic = diagnostic("B-06", basis)
-        val next = GuideGate.evaluate(input, diagnostic).data?.display
+        val gate = GuideGate.evaluate(input, diagnostic)
+        logGate(gate.diagnostics.terminal_error?.code ?: gate.outcome, input, observation)
+        val next = gate.data?.display
         if (!Settings.canDrawOverlays(activity) || next == null) return clearOverlay()
         if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
@@ -516,6 +519,20 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             renderOfferId = offerId
             send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
         }
+    }
+
+    private var lastGateLog = ""
+
+    /** #32: reason, frame age and revisions only. No utterance, text, rect or pixels. */
+    private fun logGate(reason: String?, input: GateInput, observation: LocalObservation) {
+        val line = "gate=$reason age_ms=${input.now_mono_ms - observation.captured_mono_ms} " +
+            "t0_ms=${input.t0_mono_ms?.let { input.now_mono_ms - it }} screen_rev=${observation.screen.screen_revision} " +
+            "layout_rev=${observation.layout_revision} instr_rev=${input.basis.instruction_revision} " +
+            "pending=${input.inputEvidence == InputEvidence.PENDING}"
+        val key = "$reason ${input.inputEvidence} ${observation.screen.screen_revision} ${observation.layout_revision}"
+        if (key == lastGateLog) return
+        lastGateLog = key
+        Log.i("HyojasonGate", line)
     }
 
     private fun emptyBasis() = Basis(store.pairId, callId, helpId, null, null, null, null, instruction, frames?.epoch, null, null)

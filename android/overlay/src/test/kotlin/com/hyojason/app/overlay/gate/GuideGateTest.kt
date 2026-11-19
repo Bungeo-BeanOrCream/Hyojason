@@ -168,6 +168,18 @@ class GuideGateTest {
         assertNull(clock.t0_mono_ms)
     }
 
+    @Test
+    fun frameOlderThanBudgetIsCaptureGapButOcrLatencyIsNot() {
+        val input = at(3_000)
+        val captured = { age: Long -> input.copy(local_observation = input.local_observation!!.copy(
+            captured_mono_ms = 3_000 - age)) }
+        assertEquals("intervene_tap", evaluate(captured(2_100)).outcome)
+        assertEquals("intervene_tap", evaluate(captured(GuideGate.FRAME_MAX_AGE_MS)).outcome)
+        val gap = evaluate(captured(GuideGate.FRAME_MAX_AGE_MS + 1))
+        assertEquals("CAPTURE_GAP", gap.diagnostics.terminal_error?.code)
+        assertNull(gap.data)
+    }
+
     private fun at(time: Long) = GateInput(
         mode = call, basis = basis, latestBasis = basis, latestLayoutRevision = 1,
         now_mono_ms = time, t0_mono_ms = 0,
