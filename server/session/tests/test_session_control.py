@@ -5,10 +5,16 @@ from dataclasses import asdict
 from itertools import count
 from unittest import TestCase
 
-from server.session.contracts import Basis, Run
-from server.session.control import SessionControl
-from server.session.help_state import Actor, Event
-from server.session.navigation import NavigationCatalog
+from hyojason_session.common.enums import Role, Source
+from hyojason_session.common.result import Basis
+from hyojason_session.common.serialize import to_jsonable
+from hyojason_session.common.types import ActorContext, snapshot_problems
+from hyojason_session.control import SessionControl
+from hyojason_session.help_state import Actor, Event
+from hyojason_session.mocks.pair_directory import StaticPairDirectory
+from hyojason_session.navigation import NavigationCatalog
+from hyojason_session.processing import Run
+from hyojason_session.reconnect import ReconnectRequest, reconcile_reconnect
 
 
 class SessionFlow(TestCase):
@@ -57,7 +63,7 @@ class SessionFlow(TestCase):
         instruction = self.turn(1)
         original = self.control.snapshot.basis
         self.assertEqual(instruction.navigation.outcome, "directive_recorded")
-        self.assertEqual(instruction.navigation.diagnostics.input_refs, (instruction.state.diagnostics.ref,))
+        self.assertEqual(instruction.navigation.diagnostics.input_refs, (instruction.state.ref,))
         self.assertEqual(instruction.navigation.diagnostics.source, "FIXTURE")
         self.assertEqual(instruction.navigation.diagnostics.basis, original)
         self.assertEqual(self.control.snapshot.trail_cursor, original.event_seq)
@@ -73,7 +79,7 @@ class SessionFlow(TestCase):
         edge, = self.control.trail.searchable_entries()
         self.assertEqual((edge.from_screen.screen_kind, edge.to_screen.screen_kind, edge.reversible),
                          ("settings_home", "settings_sound", True))
-        wire_trail = assessed.navigation.to_dict()["data"]["trail"]
+        wire_trail = to_jsonable(assessed.navigation)["data"]["trail"]
         self.assertEqual(set(wire_trail), {"entries", "directives", "gap_after_seq"})
         self.assertEqual(wire_trail["directives"][-1]["outcome"], "WRONG")
         self.turn(2)
@@ -184,8 +190,30 @@ class SessionFlow(TestCase):
                                actor, control.snapshot.basis, inputs=(rtc,)).state
         self.assertEqual(result.diagnostics.source, "FIXTURE")
         self.assertEqual(result.diagnostics.trace_id, rtc.diagnostics.trace_id)
-        self.assertEqual(result.diagnostics.input_refs, (rtc.diagnostics.ref,))
+        self.assertEqual(result.diagnostics.input_refs, (rtc.ref,))
         result = control.apply(Event("consent.updated", "enable", "pair", "call", "help",
                                      {"purpose": "analysis", "enabled": True}),
                                Actor("PARENT", "pair", "call"), control.snapshot.basis).state
         self.assertEqual(result.diagnostics.source, "FIXTURE")
+
+    def test_reconnect_reads_committed_snapshot_and_honors_capture_stop(self):
+        self.screen("settings_home", 1)
+        self.turn(1)
+        self.emit("goal.drafted", source_utterance_id="turn1", goal_id="SET_FONT", approved_slots={})
+        self.assertEqual(snapshot_problems(self.control.get_snapshot("help")), [])
+        actor = ActorContext("parent", "pair", Role.PARENT)
+        pairs = StaticPairDirectory({"pair": {"parent": Role.PARENT}})
+        request = ReconnectRequest("pair", "help", Role.PARENT, 0, "reconnect")
+
+        def reconnect():
+            result = reconcile_reconnect(request, actor=actor, pairs=pairs, store=self.control,
+                                         trace_id="fixture", source=Source.FIXTURE)
+            self.assertEqual(result.status, "success", result.diagnostics)
+            return result.data
+
+        self.assertTrue(reconnect().must_reobserve)
+        self.emit("screen.observed", "PARENT", projection_epoch="capture", observation_health="STOPPED")
+        self.assertFalse(reconnect().must_reobserve)
+        self.emit("help.complete", "CHILD")
+        self.assertEqual(reconnect().resume_state, "ENDED")
+        self.assertEqual(self.control.get_tombstone("help").end_reason, "CHILD_COMPLETED")

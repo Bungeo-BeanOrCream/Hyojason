@@ -3,7 +3,7 @@
 | 인터페이스 | 실제 소유 노드 | 현재 구현 |
 |---|---|---|
 | PairDirectory | N-01 resolve_pair (B) | mocks.StaticPairDirectory |
-| HelpStateReader.latest_help_id / get_snapshot | N-11 reduce_help_state (D) | mocks.InMemoryHelpStore |
+| HelpStateReader.latest_help_id / get_snapshot / observation_paused | N-11 reduce_help_state (D) | control.SessionControl |
 | HelpStateReader.get_tombstone | N-23 purge_help_and_restart (D) | mocks.InMemoryHelpStore |
 | HelpStateReader.arrival_state | N-22 resolve_arrival_or_completion (D) | mocks.InMemoryHelpStore |
 """
@@ -44,3 +44,6 @@ class HelpStateReader(Protocol):
 
     def arrival_state(self, help_id: str) -> ArrivalState:
         """N-22가 자녀에게 낸 도착 추정 알림 상태."""
+
+    def observation_paused(self, help_id: str) -> bool:
+        """관찰 권한이 중단됐거나 아직 승인되지 않았는지 확인한다."""

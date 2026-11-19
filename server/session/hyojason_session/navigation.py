@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Collection, Mapping
 
-from .contracts import Basis, NodeResult, Run, SCREEN_BOUNDARIES
+from .processing import Basis, NodeResult, Run, SCREEN_BOUNDARIES
 
 
 RETAINED_RECORDS = 60

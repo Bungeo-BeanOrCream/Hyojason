@@ -4,12 +4,14 @@ import json
 from types import MappingProxyType
 from unittest import TestCase
 
-from server.session.contracts import Basis, ResultRef, Run
-from server.session.help_state import Goal, HelpSnapshot, Reduction
+from hyojason_session.common.result import Basis, ResultRef
+from hyojason_session.common.serialize import to_jsonable
+from hyojason_session.help_state import Goal, HelpSnapshot, Reduction
+from hyojason_session.processing import Run
 
 
 def round_trip(result):
-    return json.loads(json.dumps(result.to_dict(), allow_nan=False))
+    return json.loads(json.dumps(to_jsonable(result), allow_nan=False))
 
 
 class WireContractTests(TestCase):
@@ -29,14 +31,15 @@ class WireContractTests(TestCase):
         self.assertEqual(diagnostic["terminal_error"], {
             "code": "STALE_BASIS", "step": "validate", "retryable": False,
         })
-        self.assertEqual(diagnostic["steps"]["validate"], {"status": "failed", "code": "STALE_BASIS"})
+        self.assertEqual(diagnostic["steps"]["validate"]["status"], "failed")
+        self.assertEqual(diagnostic["steps"]["validate"]["code"], "STALE_BASIS")
 
     def test_success_exports_frozen_goal_slots_and_result_references(self):
         goal = Goal("CLOCK_ALARM", 1, MappingProxyType({"hour": 6}), "fixture-turn")
         snapshot = HelpSnapshot("fixture-pair", "fixture-call", "fixture-help", goal=goal, goal_revision=1)
         run = Run(snapshot.basis, source="FIXTURE", input_refs=(ResultRef("trace", "N-15", "draft"),))
         wire = round_trip(run.success("N-11", "state_applied", Reduction(snapshot, (), 1)))
-        self.assertEqual(wire["data"]["snapshot"]["goal"]["approved_slots"], {"hour": 6})
+        self.assertEqual(wire["data"]["snapshot"]["goal"]["approved_slots"], {"hour": "6"})
         self.assertEqual(wire["data"]["side_effects"], [])
         self.assertEqual(wire["diagnostics"]["input_refs"], [
             {"trace_id": "trace", "node_id": "N-15", "run_id": "draft"},

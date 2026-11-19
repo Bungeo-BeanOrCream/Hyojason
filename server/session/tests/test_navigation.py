@@ -1,8 +1,8 @@
 import unittest
 from dataclasses import replace
 
-from server.session.contracts import Basis, Run
-from server.session.navigation import (
+from hyojason_session.processing import Basis, Run
+from hyojason_session.navigation import (
     InstructionTrace, NavigationCatalog, NavigationTrail, ScreenRef,
     Transition, record_verified_navigation,
 )

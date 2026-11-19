@@ -5,12 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from threading import RLock
 
-from .contracts import Basis, NodeResult, ResultRef, Run, Source
+from .common.enums import ArrivalState, Source
+from .common.result import Basis, NodeResult, ResultRef
+from .common.types import HelpSnapshot
 from .help_state import Actor, Event, HelpSession
 from .navigation import (
     InstructionTrace, NavigationCatalog, NavigationTrail, ScreenRef, Transition,
     record_verified_navigation,
 )
+from .processing import Run
+from .ports import HelpTombstone
 
 
 @dataclass(frozen=True)
@@ -58,6 +62,7 @@ class SessionControl:
         self._catalog = catalog
         self._source = source
         self._trail = NavigationTrail(help_id)
+        self._last_ended: HelpTombstone | None = None
         self._lock = RLock()
 
     @property
@@ -70,11 +75,34 @@ class SessionControl:
         with self._lock:
             return self._trail
 
+    def latest_help_id(self, pair_id: str) -> str | None:
+        snapshot = self.snapshot
+        return snapshot.help_id if snapshot.pair_id == pair_id else None
+
+    def get_snapshot(self, help_id: str) -> HelpSnapshot | None:
+        snapshot = self.snapshot
+        return snapshot.to_shared_snapshot() if snapshot.help_id == help_id else None
+
+    def get_tombstone(self, help_id: str) -> HelpTombstone | None:
+        with self._lock:
+            ended = self._last_ended
+            return ended if ended is not None and ended.help_id == help_id else None
+
+    def arrival_state(self, help_id: str) -> ArrivalState:
+        snapshot = self.snapshot
+        if snapshot.help_id == help_id and snapshot.help_state == "ARRIVAL_PENDING":
+            return ArrivalState.SUSPECTED
+        return ArrivalState.NONE
+
+    def observation_paused(self, help_id: str) -> bool:
+        snapshot = self.snapshot
+        return snapshot.help_id == help_id and snapshot.observation_health in ("STOPPED", "NOT_GRANTED")
+
     def apply(self, event: Event, actor: Actor, basis: Basis, *,
               trace_id: str | None = None, inputs: tuple[NodeResult, ...] = ()) -> Update:
         """Publish returned N-11 effects only after this call succeeds."""
         with self._lock:
-            refs = tuple(item.diagnostics.ref for item in inputs)
+            refs = tuple(item.ref for item in inputs)
             source = "FIXTURE" if any(item.diagnostics.source == "FIXTURE" for item in inputs) else self._source
             run = Run(basis, source=source, input_refs=refs,
                       trace_id=trace_id or (refs[0].trace_id if refs else None))
@@ -100,6 +128,13 @@ class SessionControl:
             if state.status == "success" and state.outcome != "duplicate_ignored":
                 self._trail = trail
                 self._source = source
+                snapshot = state.data.snapshot
+                if snapshot.end_reason is not None and any(
+                    effect.kind == "help.ended" for effect in state.data.side_effects
+                ):
+                    self._last_ended = HelpTombstone(
+                        snapshot.pair_id, snapshot.help_id, snapshot.end_reason, snapshot.event_seq,
+                    )
             return Update(state, navigation)
 
     def _record(self, previous, candidate, event, kinds, trail, parent_run):

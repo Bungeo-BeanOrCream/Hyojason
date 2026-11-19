@@ -122,7 +122,8 @@
       "enum": [
         "CHILD_COMPLETED",
         "PARENT_STOPPED",
-        "NO_GOAL_AT_HANGUP"
+        "NO_GOAL_AT_HANGUP",
+        "CONSENT_REVOKED"
       ]
     },
     "Goal": {

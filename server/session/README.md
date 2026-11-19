@@ -19,6 +19,9 @@ Python 3.11 이상. 런타임 외부 의존성은 없다.
 | 경로 | 내용 |
 |---|---|
 | `hyojason_session/common/` | 공통 계약: NodeResult·Diagnostic·Basis, 상태 자료형, 열거형, JSON 변환·스키마 생성 |
+| `hyojason_session/help_state.py` | **N-11** 통화·도움·동의·화면 상태와 권위 버전 |
+| `hyojason_session/navigation.py` | **N-12** 관찰 전이, 공백, 지시·위치·수행 이력 |
+| `hyojason_session/control.py` | 통화별 쓰기 경로와 N-13의 `HelpStateReader` 구현 |
 | `hyojason_session/role_view.py` | **N-21** project_role_view |
 | `hyojason_session/reconnect.py` | **N-13** reconcile_reconnect |
 | `hyojason_session/views.py` | RoleSnapshot·ParentView·ChildView ([제안서](../../docs/work/D-role-view-contract.md)) |
@@ -44,3 +47,18 @@ result = reconcile_reconnect(
 ```
 
 HTTP/WS 엔드포인트(`GET /v1/help/current`, `WS /v1/events`)는 아직 없다. 노드 함수는 프레임워크와 무관하게 호출할 수 있다.
+
+## 도움 상태와 관찰 이력 쓰기
+
+제어 서버는 인증된 통화마다 `SessionControl`을 하나 생성한다. `apply(event, actor, basis)`로 인증 계층이 얻은 역할과 범위, 이벤트, 계산 시작 시점의 `Basis`를 받는다. `update.state`에는 N-11 결과가 있고, `update.navigation`에는 N-12가 호출된 경우 그 결과가 있다. 상태가 성공적으로 적용된 뒤 `side_effects`를 발행한다. N-13에는 같은 객체를 `store`로 넘긴다.
+
+| 입력 경계 | 이벤트 또는 값 |
+|---|---|
+| 양쪽 통화와 분석 동의 | `call.connected`, `call.reconnecting`, `call.ended`, 역할별 `consent.updated` |
+| 부모 관찰 | `projection.started`, `screen.observed`. 연속 전이를 입증하면 `from_screen_revision`과 승인된 근거를 함께 전달 |
+| 자녀 발화와 해석 | `speech.final`, 같은 발화의 `instruction.drafted` 및 `goal.drafted` |
+| 화면 판정과 종료 | `target.located`, `action.assessed`, `arrival.suspected` 또는 `arrival.revoked`, `help.complete` 및 `help.stop` |
+
+프로필은 `NavigationCatalog`에 주입한다. `approved_slots`에는 목표별로 허용하는 서버 검증 함수를 전달한다. [이슈 #3 화면·대상 검토본](../../docs/work/D-issue3-screen-kind-review.md)
+
+서버 간 JSON 대조에는 공통 `to_jsonable`과 `schemas/`를 사용한다. 테스트는 `FIXTURE`로 합성 상위 이벤트를 전달한다. 오디오 전환 평가, STT 종료, 캡처 재관찰은 발행 효과로 검증한다. 실제 오디오, AVD 캡처·표시, Zoro 추론은 담당 노드와 연동해 검증한다.

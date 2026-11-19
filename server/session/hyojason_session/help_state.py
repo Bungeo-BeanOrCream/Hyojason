@@ -9,7 +9,9 @@ from threading import RLock
 from types import MappingProxyType
 from uuid import uuid4
 
-from .contracts import Basis, NodeResult, Run, SCREEN_BOUNDARIES
+from .common import types as shared
+from .common.enums import Action, CallState, EndReason, HelpState, Mode, ObservationHealth
+from .processing import Basis, NodeResult, Run, SCREEN_BOUNDARIES
 
 
 @dataclass(frozen=True)
@@ -81,6 +83,7 @@ class HelpSnapshot:
     utterance_seq: int | None = None
     trail_cursor: int = 0
     event_seq: int = 0
+    end_reason: EndReason | None = None
 
     @property
     def basis(self) -> Basis:
@@ -90,6 +93,37 @@ class HelpSnapshot:
             goal_revision=self.goal_revision, mode_revision=self.mode_revision,
             instruction_revision=self.instruction_revision, projection_epoch=self.projection_epoch,
             screen_revision=self.screen_revision, utterance_seq=self.utterance_seq,
+        )
+
+    def to_shared_snapshot(self) -> shared.HelpSnapshot:
+        """N-13/N-21 snapshot. String slots are preserved, integers use decimal
+        notation, and booleans use the JSON literals 'true' and 'false'.
+        """
+        goal = None
+        if self.goal:
+            slots = {key: str(value).lower() if type(value) is bool else str(value)
+                     for key, value in self.goal.approved_slots.items()}
+            goal = shared.Goal(self.goal.goal_id, self.goal.goal_revision, MappingProxyType(slots),
+                               self.goal.source_utterance_id)
+        instruction = None
+        if self.instruction:
+            item = self.instruction
+            instruction = shared.Instruction(
+                item.instruction_id, item.instruction_revision, item.source_utterance_id,
+                item.target_key, Action(item.action), item.origin_screen_revision,
+            )
+        screen = None
+        if self.screen:
+            item = self.screen
+            screen = shared.ScreenState(item.projection_epoch, item.screen_revision, item.screen_kind,
+                                        item.target_ids, item.evidence_codes,
+                                        ObservationHealth(item.observation_health))
+        return shared.HelpSnapshot(
+            pair_id=self.pair_id, call_id=self.call_id, help_id=self.help_id,
+            call_state=CallState(self.call_state), help_state=HelpState(self.help_state),
+            mode=Mode(self.mode), mode_revision=self.mode_revision, goal=goal,
+            instruction=instruction, screen=screen, trail_cursor=self.trail_cursor,
+            consent_revision=self.consent_revision, event_seq=self.event_seq, end_reason=self.end_reason,
         )
 
 
@@ -105,6 +139,13 @@ class Reduction:
     snapshot: HelpSnapshot
     side_effects: tuple[EffectRef, ...]
     applied_event_seq: int
+
+    def to_wire_fields(self):
+        return {
+            "snapshot": self.snapshot.to_shared_snapshot(),
+            "side_effects": self.side_effects,
+            "applied_event_seq": self.applied_event_seq,
+        }
 
 
 @dataclass
@@ -272,7 +313,7 @@ class HelpSession:
                 state.consenting |= {role}
             else:
                 state.consenting -= {role}
-                self._end(state, effects)
+                self._end(state, effects, EndReason.CONSENT_REVOKED)
                 effects.append(("stt.close", "SERVER"))
             return "state_applied"
         if kind in ("help.complete", "help.stop"):
@@ -282,7 +323,8 @@ class HelpSession:
                 state.consenting -= {"PARENT"}
                 state.update(consent_revision=s.consent_revision + 1)
                 effects.append(("stt.close", "SERVER"))
-            self._end(state, effects)
+            reason = EndReason.PARENT_STOPPED if kind == "help.stop" else EndReason.CHILD_COMPLETED
+            self._end(state, effects, reason)
             return "state_applied"
 
         _require(state.consenting == _ROLES, "NO_CONSENT")
@@ -368,7 +410,7 @@ class HelpSession:
             if s.help_state == "ENDED":
                 return "state_applied"
             if s.goal is None or state.consenting != _ROLES:
-                self._end(state, effects)
+                self._end(state, effects, EndReason.NO_GOAL_AT_HANGUP)
                 return "state_applied"
             state.previous_screen_revision = None
             state.latest_child_id = None
@@ -402,7 +444,7 @@ class HelpSession:
         return "state_applied"
 
     @staticmethod
-    def _end(state, effects):
+    def _end(state, effects, reason):
         s = state.snapshot
         state.completion_fence = s.event_seq + 1
         state.latest_child_id = None
@@ -411,7 +453,8 @@ class HelpSession:
         state.previous_screen_revision = None
         state.arrival_id = None
         state.used_epochs = frozenset()
-        state.update(help_state="ENDED", goal=None, instruction=None, screen=None, utterance_seq=None,
+        state.update(help_state="ENDED", end_reason=s.end_reason or reason,
+                     goal=None, instruction=None, screen=None, utterance_seq=None,
                      projection_epoch=None, screen_revision=None, observation_health="STOPPED", trail_cursor=0)
         if s.help_state != "ENDED":
             effects.extend([("instruction.cleared", "PARENT"), ("trail.clear", "SERVER"),

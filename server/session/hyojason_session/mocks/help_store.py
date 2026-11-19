@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from ..common.enums import ArrivalState, EndReason, HelpState
+from ..common.enums import ArrivalState, EndReason, HelpState, ObservationHealth
 from ..common.types import HelpSnapshot
 from ..ports import HelpTombstone
 
@@ -32,6 +32,13 @@ class InMemoryHelpStore:
 
     def arrival_state(self, help_id: str) -> ArrivalState:
         return self._arrival.get(help_id, ArrivalState.NONE)
+
+    def observation_paused(self, help_id: str) -> bool:
+        snapshot = self._snapshots.get(help_id)
+        return (
+            snapshot is not None and snapshot.screen is not None
+            and snapshot.screen.observation_health in (ObservationHealth.STOPPED, ObservationHealth.NOT_GRANTED)
+        )
 
     # --- 테스트·시연용 쓰기 (N-11/N-22/N-23 대체) ---------------------------
     def put_snapshot(self, snapshot: HelpSnapshot) -> None:

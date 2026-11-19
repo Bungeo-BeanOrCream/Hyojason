@@ -4,8 +4,11 @@ from dataclasses import replace
 from itertools import count
 from unittest import TestCase
 
-from server.session.contracts import Run
-from server.session.help_state import Actor, Event, HelpSession
+from hyojason_session.common.enums import EndReason, HelpState
+from hyojason_session.common.serialize import to_jsonable
+from hyojason_session.common.types import snapshot_problems
+from hyojason_session.processing import Run
+from hyojason_session.help_state import Actor, Event, HelpSession
 
 
 class ReducerTests(TestCase):
@@ -161,6 +164,23 @@ class ReducerTests(TestCase):
         self.assertNotEqual(ended.data.snapshot.help_id, before_completion.help_id)
         retry = self.send("call.ended", basis=replace(before_completion, help_id=None))
         self.assertEqual(retry.outcome, "duplicate_ignored")
+
+    def test_shared_snapshot_projects_canonical_types_and_retains_end_reason(self):
+        self.send("projection.started", "PARENT", projection_epoch="epoch")
+        self.screen()
+        self.speech(1)
+        self.draft(1)
+        self.draft(1, "goal")
+        projected = self.session.snapshot.to_shared_snapshot()
+        self.assertEqual(snapshot_problems(projected), [])
+        self.assertIs(projected.help_state, HelpState.ACTIVE)
+        self.assertEqual(to_jsonable(projected)["goal"]["approved_slots"], {"steps": "1"})
+        self.assertNotIn("utterance_seq", to_jsonable(projected))
+        self.send("help.complete", "CHILD")
+        self.send("consent.updated", "CHILD", purpose="analysis", enabled=False)
+        ended = self.session.snapshot.to_shared_snapshot()
+        self.assertEqual(snapshot_problems(ended), [])
+        self.assertIs(ended.end_reason, EndReason.CHILD_COMPLETED)
 
     def test_reconsent_and_ended_help_without_goal(self):
         self.speech(1)

@@ -15,6 +15,9 @@ from typing import Any
 def to_jsonable(value: Any) -> Any:
     if isinstance(value, Enum):
         return value.value
+    to_wire_fields = getattr(value, "to_wire_fields", None)
+    if to_wire_fields is not None:
+        return to_jsonable(to_wire_fields())
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         omit = set(getattr(type(value), "__omit_none__", ()))
         out: dict[str, Any] = {}

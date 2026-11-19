@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
-from .common.enums import HelpState, ObservationHealth, Role, Source
+from .common.enums import HelpState, Role, Source
 from .common.result import Basis, ErrorCode, NodeResult, NodeRun, StepStatus
 from .common.types import ActorContext
 from .ports import HelpStateReader, PairDirectory
@@ -26,8 +26,6 @@ from .views import RoleSnapshot
 NODE_ID = "N-13"
 OUTCOME_SNAPSHOT_READY = "snapshot_ready"
 OUTCOME_NO_ACTIVE_HELP = "no_active_help"
-
-_PAUSED_OBSERVATION = (ObservationHealth.STOPPED, ObservationHealth.NOT_GRANTED)
 
 
 class ResumeState(StrEnum):
@@ -149,7 +147,7 @@ def reconcile_reconnect(
     must_reobserve = False
     if req.role is not Role.PARENT:
         run.step("reobserve_decision", StepStatus.SKIPPED, ErrorCode.NOT_APPLICABLE.value)
-    elif current.screen is not None and current.screen.observation_health in _PAUSED_OBSERVATION:
+    elif store.observation_paused(current.help_id):
         run.step("reobserve_decision", StepStatus.SKIPPED, ErrorCode.NO_CONSENT.value)
     else:
         must_reobserve = True

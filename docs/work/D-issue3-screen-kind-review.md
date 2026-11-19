@@ -109,5 +109,6 @@ N-18 도착 추정과 N-25 판정에서 D가 쓰는 값이다. 본문·주소·O
 
 ## 5. D 구현에 미치는 영향
 
-- N-11·N-13·N-21은 screen_kind·target_id를 불투명 문자열로만 다룬다. 이 표의 값이 바뀌어도 코드는 바뀌지 않는다. 테스트 fixture는 이 초안 값(`settings_home`, `settings.display`)을 쓴다.
-- N-12(전이 이력)는 2장의 screen_revision 규칙에 의존한다. 규칙이 합의되면 N-12 구현을 시작한다.
+- N-11·N-12는 서버에 주입된 프로필에서 `screen_kind`·`target_id`·근거 코드를 확인한다. `protected`와 `unknown`은 각각 `PROTECTED`와 `GAP`으로 처리한다. N-13·N-21은 같은 공통 스냅샷을 읽는다.
+- N-10이 같은 캡처에서 연속으로 확인한 전이는 `screen.observed`에 `from_screen_revision`과 승인된 근거를 담는다. N-12는 관찰 공백에서 경로를 끊는다. 같은 화면에서 옵션 상태만 바뀌면 수행 근거로 사용할 수 있으며 복귀 엣지는 생성하지 않는다.
+- FIXTURE는 초안의 `settings_home`과 `settings.display`를 사용한다. 운영 프로필의 분류명·대상·근거 코드는 A·D 합의와 AVD 확인 후 연결한다. [서버 연결 방법](../../server/session/README.md)
