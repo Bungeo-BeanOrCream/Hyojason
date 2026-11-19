@@ -151,3 +151,35 @@ def test_worker_hooks_drive_call_and_speech_final():
     sf = out[3]["payload"]
     assert sf["source"] == "stt" and sf["speaker_role"] == "CHILD" and sf["utterance_seq"] == 1
     assert out[4]["payload"]["reason"] == "RTC_FAILED"
+
+
+def test_call_end_deletes_livekit_room(monkeypatch):
+    """종료되면 방을 지워 남은 기기도 끊긴다. LiveKit 호출은 가짜로 바꿔 요청만 확인."""
+    deleted = []
+
+    class FakeAPI:
+        def __init__(self, url):
+            assert url.startswith("https://")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        @property
+        def room(self):
+            return self
+
+        async def delete_room(self, req):
+            deleted.append(req.room)
+
+    c = _client()
+    P, C, cid = _active_call(c)
+    monkeypatch.setattr(m.lk, "LiveKitAPI", FakeAPI)
+    for k, v in (("LIVEKIT_URL", "wss://x.livekit.cloud"), ("LIVEKIT_API_KEY", "k"), ("LIVEKIT_API_SECRET", "s")):
+        monkeypatch.setenv(k, v)
+    c.post(f"/v1/calls/{cid}/end", headers=P)
+    c.post(f"/v1/calls/{cid}/end", headers=P)  # 중복 종료는 다시 지우지 않음
+    c.get("/v1/dev/outbox")  # 이벤트 루프가 한 번 더 돌게
+    assert deleted == [cid]

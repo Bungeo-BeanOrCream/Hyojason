@@ -50,6 +50,7 @@ calls = CallRegistry()
 consents: dict[str, ConsentState] = {}
 finalizers: dict[str, TurnFinalizer] = {}
 workers: dict[str, asyncio.Task] = {}  # call_id -> STT worker 작업
+_bg: set[asyncio.Task] = set()  # 방 삭제 같은 일회성 작업 (참조를 잡아 둬야 GC되지 않는다)
 # (trace_id, event). D의 Event 봉투에는 trace_id 칸이 없어 옆에 붙여 둔다.
 OUTBOX: deque[tuple[str, Event]] = deque(maxlen=1000)  # ponytail: D의 WS /v1/events가 생기면 거기로 publish
 
@@ -102,7 +103,26 @@ def _ended(call, role: Role | None) -> None:
         finalizers[call.call_id].close()
     if task := workers.pop(call.call_id, None):
         task.cancel()  # 구독 해제·STT 스트림 닫기·버퍼 폐기는 worker.run의 finally
+    _close_room(call.call_id)
     _publish(call_event("call.ended", call.pair_id, call.call_id, role, call.end_reason), call.trace_id)
+
+
+def _close_room(call_id: str) -> None:
+    """LiveKit 방을 지워 남아 있던 기기도 끊기게 한다(앱은 Disconnected를 받고 서비스를 멈춘다)."""
+    if any(not os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET")):
+        return  # 키 없는 dev·테스트
+
+    async def delete() -> None:
+        url = os.environ["LIVEKIT_URL"].replace("wss://", "https://", 1)
+        try:
+            async with lk.LiveKitAPI(url) as api:
+                await api.room.delete_room(lk.DeleteRoomRequest(room=call_id))
+        except Exception as e:  # 이미 없는 방 등. 통화 종료 자체는 이미 끝났다
+            log.warning("방 삭제 실패 %s: %s", call_id, type(e).__name__)
+
+    t = asyncio.get_running_loop().create_task(delete())
+    _bg.add(t)
+    t.add_done_callback(_bg.discard)
 
 
 # ---- N-01 ----

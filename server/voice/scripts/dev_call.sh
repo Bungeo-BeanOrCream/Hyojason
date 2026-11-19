@@ -42,4 +42,7 @@ URL=$(get '["url"]' <<<"$TPJ")
 echo "CID=$CID  PID=$PID"
 echo "부모: https://meet.livekit.io/custom?liveKitUrl=$URL&token=$(get '["token"]' <<<"$TPJ")"
 echo "자녀: https://meet.livekit.io/custom?liveKitUrl=$URL&token=$(get '["token"]' <<<"$TCJ")"
+ACT=com.hyojason.app/com.hyojason.app.rtc.debug.RtcTestActivity
+echo "AVD 부모: adb -s emulator-5554 shell am start -n $ACT --es server http://10.0.2.2:8000 --es actor P$A --es pair $PID --es call $CID"
+echo "AVD 자녀: adb -s emulator-5556 shell am start -n $ACT --es server http://10.0.2.2:8000 --es actor C$A --es pair $PID --es call $CID"
 echo "확인: curl -sS $B/v1/dev/outbox   (speech.final이 쌓이는지)"
