@@ -83,6 +83,11 @@ TARGETS: Final[dict[str, TargetProfile]] = {
     "gmail.demo_mail": TargetProfile(
         "gmail_inbox", "시연 메일", ("테스트 메일",), "gmail_mail_detail"
     ),
+    # EXPERIMENT (#37): Google 앱 첫 화면의 글자 버튼. 설정과 달리 타사 오버레이를 숨기지 않아
+    # 빨간 테두리가 보이는 경로를 시험한다. 목표·도착 근거는 아직 없다.
+    "google.photo_search": TargetProfile("google_home", "사진 검색", ("이미지 검색",)),
+    "google.translate": TargetProfile("google_home", "텍스트 번역", ("번역",)),
+    "google.saved": TargetProfile("google_home", "저장됨", ("저장한 항목",)),
 }
 GOAL_LABELS: Final[dict[GoalId, str]] = {
     "SET_FONT": "설정에서 글자 크기를 키우기",
