@@ -133,9 +133,12 @@ class SessionControl:
                  events: EventSink | None = None,
                  ledger: CompletionLedger | None = None,
                  tombstones: TombstoneRegistry | None = None,
-                 result_stores: Sequence[HelpScopedStore] = ()):
+                 result_stores: Sequence[HelpScopedStore] = (),
+                 trace_id: str | None = None):
         """events: 역할별 제어 채널(WS). ledger·tombstones: 통화를 넘어 페어 단위로 공유할 수 있다.
         result_stores: B-05 판단 결과·B-02 대기 발화처럼 이 서버가 도움 단위로 들고 있는 저장소.
+        trace_id: 서버가 통화를 만들 때 발급한 추적 ID(결정 메모 6). 주면 이 통화의 모든 노드 결과가
+        같은 trace_id를 쓴다. 없으면 호출마다 새로 만든다(격리 테스트용).
         """
         self._session = HelpSession(
             pair_id, call_id, help_id, screen_apps=catalog.screen_apps,
@@ -154,7 +157,12 @@ class SessionControl:
         stores += [_NoDataHeld(scope) for scope in (CleanupScope.INFERENCE_RESULTS,
                                                     CleanupScope.PENDING_UTTERANCES) if scope not in held]
         self._purge_stores = tuple(stores)
+        self._trace_id = trace_id
         self._lock = RLock()
+
+    @property
+    def trace_id(self) -> str | None:
+        return self._trace_id
 
     @property
     def snapshot(self):
@@ -198,7 +206,7 @@ class SessionControl:
             refs = tuple(item.ref for item in inputs)
             source = "FIXTURE" if any(item.diagnostics.source == "FIXTURE" for item in inputs) else self._source
             run = Run(basis, source=source, input_refs=refs,
-                      trace_id=trace_id or (refs[0].trace_id if refs else None))
+                      trace_id=trace_id or (refs[0].trace_id if refs else self._trace_id))
             trail = self._trail
             navigation = None
 
@@ -257,7 +265,7 @@ class SessionControl:
             completion = resolve_arrival_or_completion(
                 CompletionInput(None, command, help_id, goal_revision,
                                 ActorRole(actor.role.value), current.to_shared_snapshot()),
-                actor=actor, ledger=self._ledger, trace_id=trace_id or new_id("trace"),
+                actor=actor, ledger=self._ledger, trace_id=trace_id or self._trace_id or new_id("trace"),
                 source=Source(self._source),
             )
             if completion.data is None or not completion.data.end_requested:
@@ -277,7 +285,8 @@ class SessionControl:
                 CompletionInput(decision, None, decision.basis.help_id or current.help_id,
                                 decision.goal_revision, ActorRole.AGENT, current.to_shared_snapshot()),
                 actor=None, ledger=self._ledger,
-                trace_id=trace_id or (inputs[0].diagnostics.trace_id if inputs else new_id("trace")),
+                trace_id=trace_id or (inputs[0].diagnostics.trace_id if inputs else None)
+                or self._trace_id or new_id("trace"),
                 source=Source(self._source), input_refs=tuple(item.ref for item in inputs),
             )
             data = completion.data

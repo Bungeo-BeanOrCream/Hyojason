@@ -4,9 +4,18 @@
 Mock을 거친 결과는 실제 라이브 성공과 분리해 source=FIXTURE로 기록한다 (work-plan.md).
 """
 
+from .auth import MockTokenAuthenticator
 from .event_sink import RecordingEventSink
 from .help_store import InMemoryHelpStore
 from .pair_directory import StaticPairDirectory
+from .pairing import MockPairingService
 from .scoped_buffer import ScopedBuffer
 
-__all__ = ["InMemoryHelpStore", "RecordingEventSink", "ScopedBuffer", "StaticPairDirectory"]
+__all__ = [
+    "InMemoryHelpStore",
+    "MockPairingService",
+    "MockTokenAuthenticator",
+    "RecordingEventSink",
+    "ScopedBuffer",
+    "StaticPairDirectory",
+]
