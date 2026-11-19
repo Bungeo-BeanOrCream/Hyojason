@@ -4,5 +4,9 @@
             android:name="com.hyojason.app.debug.VerificationActivity"
             android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+        <!-- 개인 테스트: 터미널에서 Zoro-1 판단 결과를 테두리로 표시 (DebugGuideReceiver.kt) -->
+        <receiver
+            android:name="com.hyojason.app.debug.DebugGuideReceiver"
+            android:exported="true" />
     </application>
 </manifest>

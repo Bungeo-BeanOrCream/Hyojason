@@ -58,6 +58,8 @@ data class TargetRule(
     val aliases: Set<FeatureKey>,
     val rowMarker: FeatureKey? = null,
     val requiredFeatures: Set<FeatureKey> = emptySet(),
+    /** EXPERIMENT (#37): the same label may appear more than once (launcher suggestions + app grid). */
+    val topmostOfDuplicates: Boolean = false,
 )
 
 class DetectionProfile(
@@ -107,7 +109,8 @@ class ScreenDetection(private val profiles: List<DetectionProfile>) {
             }
             val matches = features.filter { it.key in rule.aliases && (row == null || row.contains(it.rect)) }
                 .map { it.rect }.distinct()
-            matches.singleOrNull()?.let { LocalTarget(id, it, setOf("PROFILE_MATCH")) }
+            (matches.singleOrNull() ?: matches.takeIf { rule.topmostOfDuplicates }?.minByOrNull { it.top })
+                ?.let { LocalTarget(id, it, setOf("PROFILE_MATCH")) }
         }.groupBy { it.rect }.values.mapNotNull { it.singleOrNull() }
         val partial = scans.any { !it.succeeded }
         val outcome = when {

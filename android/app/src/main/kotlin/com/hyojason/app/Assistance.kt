@@ -32,11 +32,15 @@ import com.hyojason.app.observer.detection.DemoProfiles
 import com.hyojason.app.observer.detection.DetectionProfile
 import com.hyojason.app.observer.detection.FeatureKey
 import com.hyojason.app.observer.detection.FeatureKind
+import com.hyojason.app.observer.detection.DetectionInput
 import com.hyojason.app.observer.detection.FeatureScan
+import com.hyojason.app.observer.detection.FrameFeature
 import com.hyojason.app.observer.detection.FrameSafety
 import com.hyojason.app.observer.detection.KoreanTextScan
+import com.hyojason.app.observer.detection.ProfileScreen
 import com.hyojason.app.observer.detection.ProfileVersion
 import com.hyojason.app.observer.detection.ScreenDetection
+import com.hyojason.app.observer.detection.TargetRule
 import com.hyojason.app.observer.projection.ProjectionCaptureService
 import com.hyojason.app.observer.projection.ProjectionFrames
 import com.hyojason.app.overlay.gate.CurrentTarget
@@ -80,8 +84,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private val store = Store(activity)
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
     private val profile = DemoProfiles.fixture.let { fixture ->
+        // EXPERIMENT (#37, A review needed): the Pixel launcher home allows third-party overlays, so it
+        // exercises the real red-border path. Its labels were read on the Korean API 35 AVD.
         val screens = fixture.screens.filter {
-            it.kind.startsWith("settings_")
+            it.kind.startsWith("settings_") || it.kind == "home"
         }.map { screen ->
             val label = FeatureKey(FeatureKind.TEXT, "디스플레이 및 터치")
             when (screen.kind) {
@@ -91,16 +97,56 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                     val context = FeatureKey(FeatureKind.TEXT, "네트워크 및 인터넷")
                     val sound = FeatureKey(FeatureKind.TEXT, "소리 및 진동")
                     val wallpaper = FeatureKey(FeatureKind.TEXT, "배경화면 및 스타일")
+                    // Rows above/below "디스플레이 및 터치" in the Korean API 35 list, used only on this device
+                    // to tell that the target is below the fold. Probe ids never leave the device.
+                    val probes = (SETTINGS_ROWS_ABOVE_DISPLAY.mapIndexed { i, row -> "$PROBE_ABOVE$i" to row } +
+                        SETTINGS_ROWS_BELOW_DISPLAY.mapIndexed { i, row -> "$PROBE_BELOW$i" to row })
+                        .associate { (id, row) -> id to TargetRule(setOf(FeatureKey(FeatureKind.TEXT, row))) }
                     screen.copy(anchors = screen.anchors + listOf(setOf(search, context), setOf(search, sound, label),
                         setOf(sound, label, wallpaper)),
-                        targets = screen.targets + ("settings.display" to target.copy(aliases = target.aliases + label)))
+                        targets = screen.targets + probes + ("settings.display" to target.copy(aliases = target.aliases + label)))
                 }
+                // The app list (swipe up from home) is treated as the same launcher screen, like B's tool:
+                // an app missing on home is found there. "캘린더"+"주소록" appear only in the app list.
+                "home" -> screen.copy(anchors = listOf(
+                    setOf(FeatureKey(FeatureKind.TEXT, "Play 스토어"), FeatureKey(FeatureKind.TEXT, "Chrome")),
+                    setOf(FeatureKey(FeatureKind.TEXT, "Gmail"), FeatureKey(FeatureKind.TEXT, "YouTube")),
+                    setOf(FeatureKey(FeatureKind.TEXT, "캘린더"), FeatureKey(FeatureKind.TEXT, "주소록"))),
+                    // The app list repeats recent apps in a suggestion row: take the topmost copy.
+                    targets = (screen.targets + ("launcher.maps" to TargetRule(setOf(
+                        FeatureKey(FeatureKind.TEXT, "지도"), FeatureKey(FeatureKind.TEXT, "Maps")))))
+                        .mapValues { (_, rule) -> rule.copy(topmostOfDuplicates = true) })
                 "settings_display" -> screen.copy(anchors = screen.anchors + listOf(
                     setOf(label, FeatureKey(FeatureKind.TEXT, "밝기 수준"))))
                 else -> screen
             }
         }
-        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"), screens)
+        // EXPERIMENT (#37): Google app home. It does not hide overlays, so the red border is visible.
+        // Labels read on the Korean API 35 AVD; "검색" is not used because it appears twice.
+        fun text(value: String) = FeatureKey(FeatureKind.TEXT, value)
+        val google = ProfileScreen("google_home", listOf(setOf(text("사진 검색"), text("텍스트 번역"))), mapOf(
+            "google.photo_search" to TargetRule(setOf(text("사진 검색"))),
+            "google.translate" to TargetRule(setOf(text("텍스트 번역"))),
+            "google.saved" to TargetRule(setOf(text("저장됨"))),
+        ))
+        // EXPERIMENT (#37): Pixel Clock (Korean). Tabs share the same bottom labels, so the tab is told
+        // apart on the device from where "알람" appears (see clockFeatures) and reported as an ICON key.
+        fun icon(value: String) = FeatureKey(FeatureKind.ICON, value)
+        val nav = mapOf("${PROBE}clock.timer" to TargetRule(setOf(text("타이머"))),
+            "${PROBE}clock.stopwatch" to TargetRule(setOf(text("스톱워치"))))
+        val clockOther = ProfileScreen("clock_other_tab", listOf(setOf(icon("clock_other_tab"))),
+            mapOf("clock.alarm_tab" to TargetRule(setOf(text("알람")))) + nav)
+        val cards = ALARM_TIMES.associate { time ->
+            "${PROBE}alarm.$time" to TargetRule(setOf(text(alarmLabel(time))), topmostOfDuplicates = true) }
+        val clockAlarms = ProfileScreen("clock_alarm_list", listOf(setOf(icon("clock_alarm_list"))),
+            mapOf("clock.add_alarm" to TargetRule(setOf(icon("add_alarm")))) + nav + cards)
+        val dial = (1..12).associate { "${PROBE}dial.$it" to TargetRule(setOf(text("$it"))) } +
+            (1..12).associate { "${PROBE}hour.%02d".format(it) to TargetRule(setOf(text("%02d".format(it))),
+                topmostOfDuplicates = true) }
+        val picker = ProfileScreen("clock_alarm_edit", listOf(setOf(text("시간 선택"), text("확인"))),
+            mapOf("clock.save_alarm" to TargetRule(setOf(text("확인")))) + dial)
+        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"),
+            screens + google + clockOther + clockAlarms + picker)
     }
     private val deviceProfileVersion by lazy {
         if (Build.VERSION.SDK_INT != 35 || Locale.getDefault().language != "ko") null
@@ -130,6 +176,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private var published: ScreenState? = null
     private var lastScreenRevision = 0L
     private var awaitingVerdict = false
+    private var lastStableKind: String? = null
     private var receivesHelp = false
     private var canComplete = false
     private var goalContext: JSONObject? = null
@@ -438,6 +485,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         flow = observationFlow(capture)
         send("projection.started", JSONObject().put("projection_epoch", capture.epoch))
         updateButtons()
+        // EXPERIMENT (#37): the parent just approved guidance, so leave the call screen for the home screen
+        // where the help starts. This only moves our own UI to the background; it never touches another app.
+        activity.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun observationFlow(capture: ProjectionFrames) =
@@ -450,34 +501,73 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                 val done = ready.await(1_200, TimeUnit.MILLISECONDS)
                 // #32: OCR latency only. No recognized text, rects or pixels.
                 Log.i(OCR_LOG, "scan_ms=${SystemClock.elapsedRealtime() - started} timed_out=${!done}")
-                if (done) listOf(features) else emptyList()
+                if (done) listOf(features) + clockFeatures(features, input) else emptyList()
             }, previousScreenRevision = lastScreenRevision, reuseIdenticalScans = true)
+
+    /**
+     * EXPERIMENT (#37): Pixel Clock tabs share the bottom labels, so tell them apart by where "알람" is:
+     * at the top it is the alarm tab's title. On the alarm tab the "알람 추가" button has no text but sits
+     * at a fixed place above the bottom labels; report it as an ICON key there. Device-local, no pixels.
+     */
+    private fun clockFeatures(scan: FeatureScan, input: DetectionInput): List<FeatureScan> {
+        if (!scan.succeeded) return emptyList()
+        fun find(value: String) = scan.features.filter { it.key.kind == FeatureKind.TEXT && it.key.value == value }
+        val timer = find("타이머").maxByOrNull { it.rect.top } ?: return emptyList()
+        if (find("스톱워치").isEmpty()) return emptyList()
+        val height = input.local_frame.viewport?.bottom ?: return emptyList()
+        val title = find("알람").minByOrNull { it.rect.top }
+        val alarmTab = title != null && title.rect.top < height / 5
+        val density = activity.resources.displayMetrics.density
+        fun px(dp: Int) = (dp * density + 0.5f).toInt()
+        val out = mutableListOf(FrameFeature(FeatureKey(FeatureKind.ICON,
+            if (alarmTab) "clock_alarm_list" else "clock_other_tab"), timer.rect))
+        if (alarmTab) {
+            val center = (timer.rect.left + timer.rect.right) / 2
+            val bottom = timer.rect.top - px(65)
+            if (bottom - px(96) > 0) out += FrameFeature(FeatureKey(FeatureKind.ICON, "add_alarm"),
+                LocalRect(center - px(48), bottom - px(96), center + px(48), bottom))
+        }
+        return listOf(FeatureScan(FeatureKind.ICON, true, out))
+    }
 
     private suspend fun readFrame() {
         val source = frames ?: return
         val pipeline = flow ?: return
-        val captured = source.take() ?: return
+        val captured = source.take() ?: return logFrames(null)
         val area = LocalRect(0, 0, captured.pixels.width, captured.pixels.height)
         val input = CaptureFrame(source.epoch, captured.pixels, captured.capturedMonoMs,
             area, area, activity.display?.rotation ?: 0, emptyList(), FrameSafety.ALLOWED)
         val diagnostic = diagnostic("B-03", emptyBasis().copy(projection_epoch = source.epoch))
         val observation = withContext(Dispatchers.Default) {
             captured.use { pipeline.process(input, diagnostic).stabilization }
-        } ?: return
+        } ?: return logFrames("no_stabilization")
+        logFrames("frame")
         if (frames != source || flow != pipeline) return
-        if (observation.locationInvalidated) clearOverlay("location_invalidated")
+        // A settings notice names a button instead of pointing at a rect, so a layout-only change on the same
+        // screen (OCR edge rows flickering) must not cancel it: the gate below re-checks that the target is
+        // still visible and clears it otherwise. A screen change still clears at once.
+        val layoutOnly = observation.locationInvalidated && observation.fromScreenRevision == null &&
+            !observation.verdictPending && settingsNoticeActive && displayed == null
+        if (observation.locationInvalidated && !layoutOnly) clearOverlay("location_invalidated")
         else if (observation.verdictPending) clearOverlay("verdict_pending")
         local = observation.local
         val screen = observation.screenToPublish ?: observation.local?.screen ?: return
         if (screen != published) {
             val previous = published
             val codes = screen.evidence_codes.toMutableList()
+            codes += belowFoldEvidence(screen.screen_kind, screen.target_ids)
+            codes += alarmEvidence(screen.screen_kind, screen.target_ids)
             if (observation.fromScreenRevision != null) codes += "stable_screen_transition"
             val body = JSONObject().put("projection_epoch", source.epoch)
                 .put("screen_revision", screen.screen_revision).put("screen_kind", screen.screen_kind)
                 .put("observation_health", if (screen.observation_health == ObservationHealth.STABLE) "ACTIVE" else screen.observation_health.name)
-                .put("target_ids", JSONArray(screen.target_ids.toList())).put("evidence_codes", JSONArray(codes))
+                .put("target_ids", JSONArray(screen.target_ids.filterNot { it.startsWith(PROBE) }))
+                .put("evidence_codes", JSONArray(codes))
             observation.fromScreenRevision?.let { body.put("from_screen_revision", it).put("reversible", true) }
+            // EXPERIMENT: privacy-free publish trace (kind, health, revision, target count only).
+            Log.i(FRAME_LOG, "publish kind=${screen.screen_kind} health=${screen.observation_health} " +
+                "rev=${screen.screen_revision} targets=${screen.target_ids.count { !it.startsWith(PROBE) }} " +
+                "probes=${screen.target_ids.count { it.startsWith(PROBE) }} below_fold=${codes.any { it.startsWith("below_fold") }}")
             if (send("screen.observed", body)) {
                 published = screen
                 lastScreenRevision = screen.screen_revision
@@ -485,12 +575,49 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             if (mode == HelpMode.POST_CALL_AGENT && screen.observation_health == ObservationHealth.STABLE && previous?.screen_revision != screen.screen_revision) {
                 t0 = SystemClock.elapsedRealtime()
             }
+            // A scroll inside one list passes through GAP frames and comes back as a new revision of the
+            // same screen. That is not a navigation, the server sends no verdict for it, and waiting for
+            // one hid the next guide until a new instruction. Only a change of screen kind awaits a verdict.
+            val stable = screen.observation_health == ObservationHealth.STABLE
+            val navigated = stable && lastStableKind != null && lastStableKind != screen.screen_kind
             if (mode == HelpMode.CALL_CHILD_LED && instruction != null && previous != null &&
-                previous.screen_revision != screen.screen_revision) awaitingVerdict = true
+                previous.screen_revision != screen.screen_revision && (navigated || !stable)) awaitingVerdict = true
+            if (stable && lastStableKind == screen.screen_kind && previous?.observation_health != ObservationHealth.STABLE) {
+                awaitingVerdict = false
+            }
+            if (stable) lastStableKind = screen.screen_kind
         }
     }
 
+    private var homeHintShown = false
+
+    /**
+     * EXPERIMENT (#37): with a goal but the parent in an app the profile does not know (or our own call
+     * screen), the first step is to go back to the home screen. Show it as a swipe hint above the
+     * gesture bar. It stays until a known screen is observed, so GAP frames do not make it flicker.
+     */
+    private fun renderHomeHint(): Boolean {
+        val goal = goalContext?.optString("goal_id").orEmpty()
+        // Leaving home for an app the profile does not know (e.g. tapping Clock from the app list) is
+        // usually the next step, not a wrong turn, so only nudge home when the parent did not come from home.
+        val away = frames != null && receivesHelp && connected && goal.isNotEmpty() &&
+            published?.screen_kind == "unknown" && lastStableKind != "home"
+        if (!away) {
+            if (homeHintShown) { host.clear(); homeHintShown = false }
+            return false
+        }
+        if (!homeHintShown) {
+            clearSettingsNotice("go_home")
+            displayed = null
+            host.clear()
+            homeHintShown = host.showBanner(HOME_GO) && host.showSwipeHint(HOME_GO)
+            if (homeHintShown) Log.i(NOTICE_LOG, "home_go_hint")
+        }
+        return true
+    }
+
     private fun render() {
+        if (renderHomeHint()) return
         val value = decision ?: return clearOverlay()
         val offerId = value.stringOrNull("decision_id") ?: return clearOverlay()
         val basis = value.optJSONObject("basis")?.let(::basisFrom) ?: return clearOverlay()
@@ -513,7 +640,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         }
         val input = GateInput(mode, basis, basis.copy(projection_epoch = observation.screen.projection_epoch,
             screen_revision = observation.screen.screen_revision), observation.layout_revision,
-            SystemClock.elapsedRealtime(), t0, observation,
+            SystemClock.elapsedRealtime(), t0, withAppIcons(observation),
             if (awaitingVerdict) InputEvidence.PENDING else InputEvidence.CONTINUOUS_NO_CHANGE,
             target, verdict, recovery, proposal, policyDenied = value.stringOrNull("warning") != null)
         val diagnostic = diagnostic("B-06", basis)
@@ -540,6 +667,34 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         }
         clearSettingsNotice("non_settings_screen")
         if (!Settings.canDrawOverlays(activity)) return clearOverlay("no_overlay_permission")
+        // On the launcher a scroll guide means "open / scroll the app list": say how, instead of "화면 내리기".
+        if (observation.screen.screen_kind == "home" && next.action == GuideAction.SCROLL_DOWN) {
+            if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
+            if (displayed != null) host.clear()
+            if (host.showBanner(HOME_SWIPE_UP) && host.showSwipeHint(HOME_SWIPE_UP)) {
+                displayed = next
+                renderBasis = basis
+                renderOfferId = offerId
+                Log.i(NOTICE_LOG, "home_swipe_banner")
+                send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+            }
+            return
+        }
+        if (observation.screen.screen_kind == "clock_alarm_edit" && next.action == GuideAction.TAP) {
+            val (text, rect) = pickerStep(observation) ?: return clearOverlay("picker_unknown")
+            val key = "$offerId|$text|$rect"
+            if (pickerKey == key) return
+            host.clear()
+            if (host.showBorder(rect) && host.showBanner(text)) {
+                pickerKey = key
+                displayed = next
+                renderBasis = basis
+                renderOfferId = offerId
+                Log.i(NOTICE_LOG, "picker_step")
+                send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+            }
+            return
+        }
         if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
@@ -547,6 +702,97 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             renderBasis = basis
             renderOfferId = offerId
             send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+        }
+    }
+
+    private var frameWindowStart = 0L
+    private val frameCounts = mutableMapOf<String, Int>()
+
+    /**
+     * The target is below the fold when it is not visible, a row above it in the fixed list is, and no
+     * row below it is. Only then does the server offer SCROLL_DOWN (`below_fold_evidence`).
+     */
+    private fun belowFoldEvidence(kind: String, ids: Set<String>): List<String> = when (kind) {
+        "settings_home" -> if ("settings.display" !in ids &&
+            ids.any { it.startsWith(PROBE_ABOVE) } && ids.none { it.startsWith(PROBE_BELOW) }
+        ) listOf("below_fold:settings_home:settings.display", "scroll_down:settings_home") else emptyList()
+        // Launcher apps not on the current home page or app-list page are further up in the app list.
+        "home" -> LAUNCHER_APPS.filterNot { it in ids }.map { "below_fold:home:$it" }
+            .let { if (it.isEmpty()) it else it + "scroll_down:home" }
+        else -> emptyList()
+    }
+
+    /**
+     * On the launcher OCR finds only an app's label, which sits under its icon. Grow a launcher target's
+     * rect up over the icon and out to the icon width so the red border frames the whole app.
+     */
+    private fun withAppIcons(observation: LocalObservation): LocalObservation {
+        if (observation.screen.screen_kind == "clock_other_tab") {
+            val density = activity.resources.displayMetrics.density
+            fun px(dp: Int) = (dp * density + 0.5f).toInt()
+            return observation.copy(targets = observation.targets.map { target ->
+                if (target.target_id != "clock.alarm_tab") return@map target
+                val r = target.rect
+                val center = (r.left + r.right) / 2
+                target.copy(rect = LocalRect((center - px(44)).coerceAtLeast(0), (r.top - px(44)).coerceAtLeast(0),
+                    center + px(44), r.bottom + px(6)))
+            })
+        }
+        if (observation.screen.screen_kind != "home") return observation
+        val density = activity.resources.displayMetrics.density
+        val screenWidth = activity.resources.displayMetrics.widthPixels
+        fun px(dp: Int) = (dp * density + 0.5f).toInt()
+        return observation.copy(targets = observation.targets.map { target ->
+            if (!target.target_id.startsWith("launcher.")) return@map target
+            val r = target.rect
+            val half = maxOf((r.right - r.left) / 2 + px(8), px(40))
+            val center = (r.left + r.right) / 2
+            target.copy(rect = LocalRect((center - half).coerceAtLeast(0), (r.top - px(88)).coerceAtLeast(0),
+                (center + half).coerceAtMost(screenWidth), r.bottom + px(6)))
+        })
+    }
+
+    private fun goalSlots(): JSONObject? = goalContext?.optJSONObject("approved_slots")
+
+    /** EXPERIMENT (#37): the approved alarm's card on the alarm list is the arrival evidence. */
+    private fun alarmEvidence(kind: String, ids: Set<String>): List<String> {
+        if (kind != "clock_alarm_list" || goalContext?.optString("goal_id") != "CLOCK_ALARM") return emptyList()
+        val slots = goalSlots() ?: return emptyList()
+        val time = slots.optString("time"); val day = slots.optString("day")
+        return if ("${PROBE}alarm.$time" in ids && day.isNotEmpty()) listOf("alarm_card_active", "alarm_next:$day:$time")
+        else emptyList()
+    }
+
+    /** EXPERIMENT (#37): on the time picker first point at the hour on the dial, then at "확인". */
+    private fun pickerStep(observation: LocalObservation): Pair<String, LocalRect>? {
+        val time = goalSlots()?.optString("time")?.takeIf { it.length == 5 } ?: return null
+        val hour24 = time.substring(0, 2).toIntOrNull() ?: return null
+        val hour = (hour24 % 12).let { if (it == 0) 12 else it }
+        val period = if (hour24 < 12) "오전" else "오후"
+        val minute = time.substring(3)
+        val targets = observation.targets.associateBy { it.target_id }
+        return if ("${PROBE}hour.%02d".format(hour) !in targets) {
+            targets["${PROBE}dial.$hour"]?.let { "‘$hour’을 눌러 주세요" to pad(it.rect, 18) }
+        } else {
+            val minuteText = if (minute == "00") "" else " 분은 ‘$minute’,"
+            targets["clock.save_alarm"]?.let { "$minuteText ‘$period’를 고른 뒤 ‘확인’을 눌러 주세요".trim() to pad(it.rect, 6) }
+        }
+    }
+
+    private fun pad(rect: LocalRect, dp: Int): LocalRect {
+        val px = (dp * activity.resources.displayMetrics.density + 0.5f).toInt()
+        return LocalRect((rect.left - px).coerceAtLeast(0), (rect.top - px).coerceAtLeast(0), rect.right + px, rect.bottom + px)
+    }
+
+    /** EXPERIMENT: per-2s counts of loop outcomes (no frame / no stabilization / processed). */
+    private fun logFrames(kind: String?) {
+        val key = kind ?: "no_frame"
+        frameCounts[key] = (frameCounts[key] ?: 0) + 1
+        val now = SystemClock.elapsedRealtime()
+        if (now - frameWindowStart >= 2_000) {
+            if (frameWindowStart != 0L) Log.i(FRAME_LOG, "window ${frameCounts.toSortedMap()}")
+            frameWindowStart = now
+            frameCounts.clear()
         }
     }
 
@@ -608,7 +854,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             .put("target_ids", JSONArray()).put("evidence_codes", JSONArray()))
     }
 
+    private var pickerKey: String? = null
+
     private fun clearOverlay(reason: String = "render") {
+        pickerKey = null
         clearSettingsNotice(reason)
         if (displayed != null) host.clear()
         displayed = null
@@ -633,6 +882,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         local = null
         published = null
         decision = null
+        lastStableKind = null
+        if (homeHintShown) { host.clear(); homeHintShown = false }
         clearOverlay("capture_stopped")
         lastSettingsNotice = null
     }
@@ -650,5 +901,24 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         private const val NOTICE_LOG = "HyojasonNotice"
         private const val EVENT_LOG = "HyojasonEvent"
         private const val OCR_LOG = "HyojasonOcr"
+        private const val FRAME_LOG = "HyojasonFrame"
+        private const val PROBE = "probe."
+        private const val HOME_SWIPE_UP = "위로 쓸어 올려 앱 목록을 열어 주세요"
+        private const val HOME_GO = "화면 맨 아래를 위로 밀어 홈으로 가 주세요"
+        private val ALARM_TIMES = (0..23).flatMap { h -> listOf("%02d:00".format(h), "%02d:30".format(h)) }
+        private fun alarmLabel(time: String): String {
+            val hour24 = time.substring(0, 2).toInt()
+            val hour = (hour24 % 12).let { if (it == 0) 12 else it }
+            return "${if (hour24 < 12) "오전" else "오후"} $hour:${time.substring(3)}"
+        }
+        private val LAUNCHER_APPS = listOf(
+            "launcher.settings", "launcher.clock", "launcher.maps", "launcher.sms", "launcher.gmail")
+        private const val PROBE_ABOVE = "probe.above#"
+        private const val PROBE_BELOW = "probe.below#"
+        private val SETTINGS_ROWS_ABOVE_DISPLAY = listOf(
+            "네트워크 및 인터넷", "연결된 기기", "앱", "알림", "배터리", "저장용량", "소리 및 진동")
+        private val SETTINGS_ROWS_BELOW_DISPLAY = listOf(
+            "배경화면 및 스타일", "접근성", "보안 및 개인 정보 보호", "위치", "안전 및 긴급 상황",
+            "디지털 웰빙 및 자녀 보호 기능", "시스템", "도움말 및 지원")
     }
 }

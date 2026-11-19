@@ -3,6 +3,7 @@ package com.hyojason.app.overlay.surface
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Build
 import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
 import android.view.Gravity
@@ -26,6 +27,7 @@ class AndroidSurfaceHost(
     private val maxAlpha = this.context.getSystemService(InputManager::class.java).maximumObscuringOpacityForTouch
     private var border: View? = null
     private var banner: View? = null
+    private var hint: View? = null
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density + 0.5f).toInt()
 
@@ -68,6 +70,14 @@ class AndroidSurfaceHost(
         }
         val p = params(rect.right - rect.left, rect.bottom - rect.top, touchable = false).apply {
             x = rect.left; y = rect.top
+            // The rect comes from the whole-display capture (origin at the top of the screen). Without this
+            // the overlay is laid out below the status bar and every border landed one status bar too low.
+            flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         if (!add(view, p)) return false
         border = view
@@ -102,8 +112,47 @@ class AndroidSurfaceHost(
         return true
     }
 
+    /**
+     * EXPERIMENT (#37): a large up arrow and label above the gesture bar, for guides that are a swipe
+     * (go home, open the app list) rather than a button. Not touchable, so the swipe passes through.
+     */
+    fun showSwipeHint(text: String): Boolean {
+        remove(hint); hint = null
+        val view = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            addView(TextView(context).apply {
+                this.text = text
+                setTextColor(Color.WHITE)
+                textSize = 20f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = Gravity.CENTER
+                setPadding(dp(16), dp(10), dp(16), dp(10))
+                background = GradientDrawable().apply {
+                    setColor(Color.parseColor("#D92D43"))
+                    cornerRadius = dp(24).toFloat()
+                }
+            })
+            addView(TextView(context).apply {
+                this.text = "⬆"
+                textSize = 88f
+                setTextColor(Color.parseColor("#D92D43"))
+                gravity = Gravity.CENTER
+            })
+        }
+        val p = params(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
+            touchable = false).apply {
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(40)
+        }
+        if (!add(view, p)) return false
+        hint = view
+        return true
+    }
+
     override fun clear() {
         remove(border); border = null
         remove(banner); banner = null
+        remove(hint); hint = null
     }
 }
