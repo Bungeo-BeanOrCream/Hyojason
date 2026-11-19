@@ -63,7 +63,7 @@ contracts.md의 HelpSnapshot 필드에 세 개를 더했다.
 | 타입·이벤트 | 필드 | 규칙 |
 |---|---|---|
 | ArrivalDecision (C → D) | arrival_id, arrived, goal_revision, evidence_codes[], basis | basis에 help_id·consent_revision·mode_revision·goal_revision·projection_epoch·screen_revision이 모두 있어야 한다. arrived=true면 evidence_codes가 비어 있으면 안 된다. 현재 snapshot과 하나라도 다르면 STALE_BASIS |
-| help.complete / help.stop (자녀 / 부모 → D) | 봉투 + help_id | 범위는 help_id로만 확인한다(자녀는 goal_revision을 모름). 완료는 자녀만, 중단은 부모만. 지시·목표가 생기기 전(LISTENING)에는 자녀 완료 불가 |
+| help.complete / help.stop (자녀 / 부모 → D) | 봉투 + help_id | 범위는 help_id로만 확인한다(자녀는 goal_revision을 모름). 완료는 자녀만, 중단은 부모만. 지시·목표가 생기기 전(LISTENING)에는 자녀 완료 불가. 서버는 이를 N-22(`SessionControl.submit_command`)로 보내고, 승인되면 서버 내부 이벤트 `help.end`로 N-11에 반영한다. 앱은 `help.end`를 보내지 않는다 |
 | arrival.suspected / revoked (D → 자녀) | 봉투 + arrival_id | 통화 후(POST_CALL_AGENT)에만. (help, mode, goal, arrival_id)로 중복 제거, 같은 목표에는 한 번 |
 | help.ended (D → 양쪽) | 봉투(event_id = end_event_id) + payload {end_event_id, reason} | reason은 CHILD_COMPLETED / PARENT_STOPPED / NO_GOAL_AT_HANGUP. 부모 "다 됐어요!"는 CHILD_COMPLETED일 때 end_event_id마다 한 번. 다른 help_id의 help.ended는 무시 |
 | HelpTombstone (N-23 내부) | pair_id, help_id, end_event_id, end_reason, final_event_seq, resume_requires_consent | 사용자 내용 없음. N-11은 새 도움을 열기 전에 resume_requires_consent를 확인 |

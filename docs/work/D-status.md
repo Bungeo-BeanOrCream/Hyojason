@@ -48,10 +48,16 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 
 ## 다음 할 일
 
-1. 제어 엔드포인트(`WS /v1/events`, `GET /v1/help/current`)에서 `help.complete/stop` → `submit_command`, N-18 결과 → `submit_arrival`로 연결 (웹 프레임워크 선택 필요).
-2. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
-3. [계약 추가 제안](D-role-view-contract.md)을 A·B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
-4. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인.
+1. **제어 서버(앱 연동의 전제, 아직 없음).** 웹 프레임워크를 정하고 다음을 만든다.
+   - REST `GET /v1/help/current`(N-13), `WS /v1/events` 인증 연결.
+   - 수신: `help.complete/stop` → `SessionControl.submit_command`, N-18 결과 → `submit_arrival`, 그 밖의 이벤트 → `SessionControl.apply`.
+   - 송신: N-11 효과(`instruction.accepted/cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `arrival.*`, `guide.suspend`, `observation.stop` 등)를 역할별로 보내는 경로. 지금은 계산만 되고 보내는 곳이 없다(`help.ended`만 EventSink로 나감).
+   - 상태가 바뀔 때마다 N-21 역할 화면을 다시 보내는 경로 (B-07 정책 1). 지금은 N-13 재접속 때만 쓰인다.
+2. **trace_id 발급 주체 결정** (이슈 #5, A 질문). 서버가 발급해 이벤트로 내려 줄지, 부모 앱이 만들어 쓸지 D가 정한다.
+3. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
+4. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
+5. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
+6. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
 
 ## 하면 안 되는 일
 
@@ -65,6 +71,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
+- 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. A는 trace_id 발급 주체를 D가 정해 주길 기다린다.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
 - 이슈 #1 Android 골격 전: 클라이언트 쪽 N-13·N-23 처리의 실제 구현·검증 불가.
 - 두 AVD의 실제 통화·캡처·자산과 L40S 모델·비용 증거가 모이기 전까지 N-24·N-25의 라이브 결과는 `UNVERIFIED`.
