@@ -5,7 +5,7 @@
 
 RTC 연결 상태만 다룬다. 도움 종료(help.stop)는 만들지 않는다 — N-11/N-22 몫.
 스피커 전환은 Android가 한다(call_id당 1회, 이어폰·Bluetooth면 유지). 서버는 SYSTEM으로만 기록.
-LiveKit 토큰 발급은 API 키가 필요해 rtc_token.py로 분리했다(아직 미구현).
+LiveKit 토큰 발급은 app.rtc_token. 룸 이름은 call_id라 통화마다 새 방이다.
 """
 
 from __future__ import annotations

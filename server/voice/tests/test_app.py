@@ -78,3 +78,33 @@ def test_rejects_bad_input_and_strangers():
     assert r.status_code == 422
     assert c.post("/v1/calls", headers={"X-Actor-Id": "Z", "X-Pair-Id": "nope"}).status_code == 403
     assert c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": "123456"}).status_code == 422  # 헤더 없음
+
+
+def test_rtc_token_only_for_accepted_call_microphone_only(monkeypatch):
+    from livekit import api as lk
+
+    c = _client()
+    pid = c.post("/v1/pairs/invite", json={"role": "PARENT"}, headers={"X-Actor-Id": "P"}).json()["pair_id"]
+    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
+    c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": code}, headers={"X-Actor-Id": "C"})
+    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
+
+    for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
+        monkeypatch.delenv(k, raising=False)
+    assert c.post(f"/v1/calls/{cid}/rtc-token", headers=P).status_code == 403  # 수락 전
+    c.post(f"/v1/calls/{cid}/accept", headers=C)
+    assert c.post(f"/v1/calls/{cid}/rtc-token", headers=P).status_code == 503  # 키 없음
+
+    monkeypatch.setenv("LIVEKIT_URL", "wss://example.invalid")
+    monkeypatch.setenv("LIVEKIT_API_KEY", "devkey")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "devsecret-devsecret-devsecret-0000")
+    r = c.post(f"/v1/calls/{cid}/rtc-token", headers=C).json()
+    claims = lk.TokenVerifier("devkey", "devsecret-devsecret-devsecret-0000").verify(r["token"])
+    assert claims.identity == f"{pid}:CHILD" and r["identity"] == claims.identity
+    assert claims.video.room == cid and claims.video.room_join
+    assert claims.video.can_publish_sources == ["microphone"] and not claims.video.can_publish_data
+
+    assert c.post(f"/v1/calls/{cid}/rtc-token", headers={"X-Actor-Id": "Z", "X-Pair-Id": pid}).status_code == 403
+    c.post(f"/v1/calls/{cid}/end", headers=P)
+    assert c.post(f"/v1/calls/{cid}/rtc-token", headers=C).status_code == 409  # 종료 후

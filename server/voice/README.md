@@ -15,6 +15,7 @@ pip install -r requirements.txt
 export PYTHONPATH="$(cd ../../../Hyojason-D/server/session && pwd)"   # 셸마다
 cp .env.example .env                                   # 값은 직접 채움. 커밋 금지
 python -m pytest
+set -a; . ./.env; set +a                               # .env를 셸 환경변수로 (셸마다)
 uvicorn hyojason_voice.app:app --reload --port 8000    # 에뮬레이터에서는 http://10.0.2.2:8000
 ```
 
@@ -43,8 +44,8 @@ curl localhost:8000/v1/dev/outbox      # 발행된 이벤트 (source=manual_test
 
 ## 아직 없는 것 (API 키 또는 팀 결정 필요)
 
-- `POST /v1/calls/{id}/rtc-token`: LiveKit 키 연결 전이라 501. 참가 콜백은 `/v1/dev/calls/{id}/joined`로 대신.
-- STT worker(LiveKit Agents, 트랙별 스트림)와 CLOVA/RTZR 어댑터: 키 받은 뒤 `SttEvent`를 만들어 `transcribe_korean_turn`에 넘기면 된다.
+- LiveKit 웹훅: 참가 콜백은 `/v1/dev/calls/{id}/joined`로 대신. (`rtc-token`은 구현됨. `.env`에 LiveKit 키가 없으면 503)
+- STT worker(LiveKit Agents, 트랙별 스트림)와 RTZR(`sommers_ko`) 어댑터: 키 받은 뒤 `SttEvent`를 만들어 `transcribe_korean_turn`에 넘기면 된다.
 - 실제 인증: 지금은 `X-Actor-Id`/`X-Pair-Id` 헤더를 그대로 믿는다(dev 전용).
 - D로 보내는 WS: D의 `WS /v1/events`가 생기면 `app._publish`만 바꾼다.
 - Android `rtc`/`child`: 이슈 #1 골격 PR(`com.hyojason.app`, SDK 35, `android/contract`) 이후 시작.

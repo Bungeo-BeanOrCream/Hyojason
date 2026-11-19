@@ -4,7 +4,7 @@
 
 아직 없는 것:
 - 실제 인증. 지금은 X-Actor-Id / X-Pair-Id 헤더를 믿는다(dev 전용).
-- LiveKit 토큰·웹훅(API 키 필요). 참가 콜백은 /v1/dev/.../joined로 대신한다.
+- LiveKit 웹훅. 참가 콜백은 /v1/dev/.../joined로 대신한다.
 - D로 가는 WS 전송. 발행 이벤트는 OUTBOX에 쌓고 /v1/dev/outbox로 본다.
 
 모든 핸들러는 async def이고 안에서 await하지 않는다 → 이벤트 루프 하나에서 한 요청씩 돈다.
@@ -13,8 +13,10 @@ ponytail: 이게 상태 잠금 역할이다. 핸들러에 await(외부 호출)�
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from dataclasses import asdict
+from datetime import timedelta
 
 from fastapi import FastAPI, Header, HTTPException
 from hyojason_session.common.enums import CallState, Role, Source
@@ -22,9 +24,11 @@ from hyojason_session.common.result import ErrorCode, NodeResult, Status, new_id
 from hyojason_session.common.serialize import to_jsonable
 from hyojason_session.common.types import ActorContext
 from hyojason_session.help_state import Event
+from livekit import api as lk
 from pydantic import BaseModel, Field
 
 from .call import CallRegistry, Operation, start_or_close_call
+from .common import identity
 from .consent import Capability, ConsentState, ConsentUpdate, Purpose, resolve_consent
 from .events import MANUAL_TEST, call_event, speech_final_event
 from .finalize import FinalizeRequest, TurnFinalizer
@@ -47,7 +51,9 @@ _HTTP = {
     ErrorCode.ALREADY_ENDED: 409,
     ErrorCode.NO_CONSENT: 409,
     ErrorCode.TIMEOUT: 408,
+    ErrorCode.DEPENDENCY_UNAVAILABLE: 503,
 }
+RTC_TOKEN_TTL = timedelta(minutes=10)  # 참가용. 연결된 뒤 갱신은 LiveKit SDK가 한다
 
 
 def _fail(code: ErrorCode):
@@ -184,8 +190,28 @@ async def end_call(call_id: str, x_actor_id: str = Header(), x_pair_id: str = He
 
 
 @app.post("/v1/calls/{call_id}/rtc-token")
-async def rtc_token(call_id: str):
-    raise HTTPException(501, "LiveKit API 키 연결 전")
+async def rtc_token(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
+    """수락된 진행 중 통화의 참여자에게만, 그 통화 방(room=call_id) 마이크 발행 권한만 준다."""
+    actor = _actor(x_actor_id, x_pair_id)
+    call = calls.get(call_id)
+    if call is None or call.pair_id != actor.pair_id or not call.accepted:
+        _fail(ErrorCode.UNAUTHORIZED)  # 다른 페어·수락 전은 같은 오류
+    if call.state is CallState.ENDED:
+        _fail(ErrorCode.ALREADY_ENDED)
+    url, key, secret = (os.environ.get(k) for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"))
+    if not (url and key and secret):
+        _fail(ErrorCode.DEPENDENCY_UNAVAILABLE)
+    who = identity(actor.pair_id, actor.role)
+    grants = lk.VideoGrants(
+        room_join=True,
+        room=call_id,
+        can_publish=True,
+        can_subscribe=True,
+        can_publish_data=False,
+        can_publish_sources=["microphone"],  # 화면·카메라 트랙 금지 (AGENTS.md)
+    )
+    token = lk.AccessToken(key, secret).with_identity(who).with_grants(grants).with_ttl(RTC_TOKEN_TTL).to_jwt()
+    return {"url": url, "token": token, "room": call_id, "identity": who, "trace_id": call.trace_id}
 
 
 # ---- dev 전용 ----

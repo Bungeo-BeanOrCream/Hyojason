@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "효자손 B — 페어·동의·통화(N-01~03), 음성 수신·한국어 STT·발화 확정(N-04~06)"
 requires-python = ">=3.11"
 # 공통 계약(NodeResult·Basis·Role·Event)은 server/session(D)의 hyojason_session을 그대로 쓴다.
-dependencies = ["fastapi>=0.110"]
+dependencies = ["fastapi>=0.110", "livekit-api>=1.2", "livekit-agents>=1.8", "livekit-plugins-rtzr>=1.8"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx"]
