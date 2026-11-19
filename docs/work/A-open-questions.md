@@ -40,13 +40,19 @@
 - `:app`의 임시 화면은 `com.hyojason.app.debug`에 있고 debug 빌드에 포함된다. 오버레이 권한 요청과 하나의 테스트 테두리 표시·제거를 제공한다. 실제 캡처 검증은 N-07 서비스가 있는 `A`에서 연결한다. 골격의 화면은 해당 연결이 들어올 때까지 캡처를 대기 상태로 표시한다.
 - 검증 화면은 화면 공유의 상태, epoch와 프레임 수만 표시한다. 실제 프레임은 수신할 때 즉시 닫는다.
 
+## 골격 PR 사전 보안 점검
+
+- 상위 모델과 교차 점검한 뒤 골격 브랜치 `e32106f`에서 Gradle을 8.14.7로 올렸다. 공식 배포판 SHA-256을 고정하고 Wrapper JAR도 공식 SHA-256과 대조했다. [Gradle 보안 권고](https://github.com/gradle/gradle/security/advisories/GHSA-pcp8-98xm-c6pr)
+- 검증 화면이 여러 개 열려도 프로세스에서 테스트 테두리 하나만 유지한다. 어느 검증 화면에서든 제거할 수 있고, 권한 설정으로 이동할 때 먼저 제거한다. [Android 터치 전달 규칙](https://developer.android.com/reference/android/view/WindowManager.LayoutParams#FLAG_NOT_TOUCHABLE)
+- 골격 브랜치의 API 35 debug·release APK와 JVM 계약 테스트 5개를 확인했다. release APK 매니페스트에 검증 Activity, 화면 캡처 서비스, 오버레이 권한이 없다. 실제 AVD의 하위 앱 터치 전달은 `UNVERIFIED`다.
+
 ## 진행 상태
 
 - 현재 상태: 골격 후보 `e8f2d1a`의 API 35 빌드와 계약 테스트 5개를 확인하고, 사용자 승인 후 `origin/A-gradle-skeleton`에 푸시했다. 원격 HEAD가 로컬과 일치한다. 기능 작업용 `A`는 실제 N-07 연결이 있는 debug 앱을 포함하며, 앱·라이브러리 빌드와 JVM 테스트 43개를 확인했다. 두 체크아웃의 APK 경로는 각각 `android/app/build/outputs/apk/debug/app-debug.apk`다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
-- 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.11.1, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 사용자 확인 후 `A-gradle-skeleton`에서 `main`으로 이슈 #1·#2 골격 PR을 연다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
+- 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
+- 다음 할 일: 사용자 확인 후 골격 브랜치의 보안 수정 `e32106f`를 푸시한다. 푸시 확인 후 `main` 대상 이슈 #1·#2 골격 PR을 별도로 승인받아 연다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리.
-- 막힌 것: 골격 PR 생성 승인 대기. N-07의 Android 15 동작 확인 대기.
+- 막힌 것: 골격 보안 수정 푸시 승인 사전 확인. N-07의 Android 15 동작 확인 대기.
 
 ## AGENTS.md 테스트 실행 명령 제안
 
