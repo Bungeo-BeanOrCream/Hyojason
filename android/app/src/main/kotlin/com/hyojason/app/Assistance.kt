@@ -35,8 +35,10 @@ import com.hyojason.app.observer.detection.FeatureKind
 import com.hyojason.app.observer.detection.FeatureScan
 import com.hyojason.app.observer.detection.FrameSafety
 import com.hyojason.app.observer.detection.KoreanTextScan
+import com.hyojason.app.observer.detection.ProfileScreen
 import com.hyojason.app.observer.detection.ProfileVersion
 import com.hyojason.app.observer.detection.ScreenDetection
+import com.hyojason.app.observer.detection.TargetRule
 import com.hyojason.app.observer.projection.ProjectionCaptureService
 import com.hyojason.app.observer.projection.ProjectionFrames
 import com.hyojason.app.overlay.gate.CurrentTarget
@@ -80,8 +82,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private val store = Store(activity)
     private val http = OkHttpClient.Builder().pingInterval(15, TimeUnit.SECONDS).build()
     private val profile = DemoProfiles.fixture.let { fixture ->
+        // EXPERIMENT (#37, A review needed): the Pixel launcher home allows third-party overlays, so it
+        // exercises the real red-border path. Its labels were read on the Korean API 35 AVD.
         val screens = fixture.screens.filter {
-            it.kind.startsWith("settings_")
+            it.kind.startsWith("settings_") || it.kind == "home"
         }.map { screen ->
             val label = FeatureKey(FeatureKind.TEXT, "디스플레이 및 터치")
             when (screen.kind) {
@@ -91,16 +95,37 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                     val context = FeatureKey(FeatureKind.TEXT, "네트워크 및 인터넷")
                     val sound = FeatureKey(FeatureKind.TEXT, "소리 및 진동")
                     val wallpaper = FeatureKey(FeatureKind.TEXT, "배경화면 및 스타일")
+                    // Rows above/below "디스플레이 및 터치" in the Korean API 35 list, used only on this device
+                    // to tell that the target is below the fold. Probe ids never leave the device.
+                    val probes = (SETTINGS_ROWS_ABOVE_DISPLAY.mapIndexed { i, row -> "$PROBE_ABOVE$i" to row } +
+                        SETTINGS_ROWS_BELOW_DISPLAY.mapIndexed { i, row -> "$PROBE_BELOW$i" to row })
+                        .associate { (id, row) -> id to TargetRule(setOf(FeatureKey(FeatureKind.TEXT, row))) }
                     screen.copy(anchors = screen.anchors + listOf(setOf(search, context), setOf(search, sound, label),
                         setOf(sound, label, wallpaper)),
-                        targets = screen.targets + ("settings.display" to target.copy(aliases = target.aliases + label)))
+                        targets = screen.targets + probes + ("settings.display" to target.copy(aliases = target.aliases + label)))
                 }
+                // The app list (swipe up from home) is treated as the same launcher screen, like B's tool:
+                // an app missing on home is found there. "캘린더"+"주소록" appear only in the app list.
+                "home" -> screen.copy(anchors = listOf(
+                    setOf(FeatureKey(FeatureKind.TEXT, "Play 스토어"), FeatureKey(FeatureKind.TEXT, "Chrome")),
+                    setOf(FeatureKey(FeatureKind.TEXT, "Gmail"), FeatureKey(FeatureKind.TEXT, "YouTube")),
+                    setOf(FeatureKey(FeatureKind.TEXT, "캘린더"), FeatureKey(FeatureKind.TEXT, "주소록"))),
+                    targets = screen.targets + ("launcher.maps" to TargetRule(setOf(
+                        FeatureKey(FeatureKind.TEXT, "지도"), FeatureKey(FeatureKind.TEXT, "Maps")))))
                 "settings_display" -> screen.copy(anchors = screen.anchors + listOf(
                     setOf(label, FeatureKey(FeatureKind.TEXT, "밝기 수준"))))
                 else -> screen
             }
         }
-        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"), screens)
+        // EXPERIMENT (#37): Google app home. It does not hide overlays, so the red border is visible.
+        // Labels read on the Korean API 35 AVD; "검색" is not used because it appears twice.
+        fun text(value: String) = FeatureKey(FeatureKind.TEXT, value)
+        val google = ProfileScreen("google_home", listOf(setOf(text("사진 검색"), text("텍스트 번역"))), mapOf(
+            "google.photo_search" to TargetRule(setOf(text("사진 검색"))),
+            "google.translate" to TargetRule(setOf(text("텍스트 번역"))),
+            "google.saved" to TargetRule(setOf(text("저장됨"))),
+        ))
+        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"), screens + google)
     }
     private val deviceProfileVersion by lazy {
         if (Build.VERSION.SDK_INT != 35 || Locale.getDefault().language != "ko") null
@@ -130,6 +155,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private var published: ScreenState? = null
     private var lastScreenRevision = 0L
     private var awaitingVerdict = false
+    private var lastStableKind: String? = null
     private var receivesHelp = false
     private var canComplete = false
     private var goalContext: JSONObject? = null
@@ -438,6 +464,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         flow = observationFlow(capture)
         send("projection.started", JSONObject().put("projection_epoch", capture.epoch))
         updateButtons()
+        // EXPERIMENT (#37): the parent just approved guidance, so leave the call screen for the home screen
+        // where the help starts. This only moves our own UI to the background; it never touches another app.
+        activity.startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
     private fun observationFlow(capture: ProjectionFrames) =
@@ -456,28 +486,40 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private suspend fun readFrame() {
         val source = frames ?: return
         val pipeline = flow ?: return
-        val captured = source.take() ?: return
+        val captured = source.take() ?: return logFrames(null)
         val area = LocalRect(0, 0, captured.pixels.width, captured.pixels.height)
         val input = CaptureFrame(source.epoch, captured.pixels, captured.capturedMonoMs,
             area, area, activity.display?.rotation ?: 0, emptyList(), FrameSafety.ALLOWED)
         val diagnostic = diagnostic("B-03", emptyBasis().copy(projection_epoch = source.epoch))
         val observation = withContext(Dispatchers.Default) {
             captured.use { pipeline.process(input, diagnostic).stabilization }
-        } ?: return
+        } ?: return logFrames("no_stabilization")
+        logFrames("frame")
         if (frames != source || flow != pipeline) return
-        if (observation.locationInvalidated) clearOverlay("location_invalidated")
+        // A settings notice names a button instead of pointing at a rect, so a layout-only change on the same
+        // screen (OCR edge rows flickering) must not cancel it: the gate below re-checks that the target is
+        // still visible and clears it otherwise. A screen change still clears at once.
+        val layoutOnly = observation.locationInvalidated && observation.fromScreenRevision == null &&
+            !observation.verdictPending && settingsNoticeActive && displayed == null
+        if (observation.locationInvalidated && !layoutOnly) clearOverlay("location_invalidated")
         else if (observation.verdictPending) clearOverlay("verdict_pending")
         local = observation.local
         val screen = observation.screenToPublish ?: observation.local?.screen ?: return
         if (screen != published) {
             val previous = published
             val codes = screen.evidence_codes.toMutableList()
+            codes += belowFoldEvidence(screen.screen_kind, screen.target_ids)
             if (observation.fromScreenRevision != null) codes += "stable_screen_transition"
             val body = JSONObject().put("projection_epoch", source.epoch)
                 .put("screen_revision", screen.screen_revision).put("screen_kind", screen.screen_kind)
                 .put("observation_health", if (screen.observation_health == ObservationHealth.STABLE) "ACTIVE" else screen.observation_health.name)
-                .put("target_ids", JSONArray(screen.target_ids.toList())).put("evidence_codes", JSONArray(codes))
+                .put("target_ids", JSONArray(screen.target_ids.filterNot { it.startsWith(PROBE) }))
+                .put("evidence_codes", JSONArray(codes))
             observation.fromScreenRevision?.let { body.put("from_screen_revision", it).put("reversible", true) }
+            // EXPERIMENT: privacy-free publish trace (kind, health, revision, target count only).
+            Log.i(FRAME_LOG, "publish kind=${screen.screen_kind} health=${screen.observation_health} " +
+                "rev=${screen.screen_revision} targets=${screen.target_ids.count { !it.startsWith(PROBE) }} " +
+                "probes=${screen.target_ids.count { it.startsWith(PROBE) }} below_fold=${codes.any { it.startsWith("below_fold") }}")
             if (send("screen.observed", body)) {
                 published = screen
                 lastScreenRevision = screen.screen_revision
@@ -485,8 +527,17 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             if (mode == HelpMode.POST_CALL_AGENT && screen.observation_health == ObservationHealth.STABLE && previous?.screen_revision != screen.screen_revision) {
                 t0 = SystemClock.elapsedRealtime()
             }
+            // A scroll inside one list passes through GAP frames and comes back as a new revision of the
+            // same screen. That is not a navigation, the server sends no verdict for it, and waiting for
+            // one hid the next guide until a new instruction. Only a change of screen kind awaits a verdict.
+            val stable = screen.observation_health == ObservationHealth.STABLE
+            val navigated = stable && lastStableKind != null && lastStableKind != screen.screen_kind
             if (mode == HelpMode.CALL_CHILD_LED && instruction != null && previous != null &&
-                previous.screen_revision != screen.screen_revision) awaitingVerdict = true
+                previous.screen_revision != screen.screen_revision && (navigated || !stable)) awaitingVerdict = true
+            if (stable && lastStableKind == screen.screen_kind && previous?.observation_health != ObservationHealth.STABLE) {
+                awaitingVerdict = false
+            }
+            if (stable) lastStableKind = screen.screen_kind
         }
     }
 
@@ -540,6 +591,19 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         }
         clearSettingsNotice("non_settings_screen")
         if (!Settings.canDrawOverlays(activity)) return clearOverlay("no_overlay_permission")
+        // On the launcher a scroll guide means "open / scroll the app list": say how, instead of "화면 내리기".
+        if (observation.screen.screen_kind == "home" && next.action == GuideAction.SCROLL_DOWN) {
+            if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
+            if (displayed != null) host.clear()
+            if (host.showBanner(HOME_SWIPE_UP)) {
+                displayed = next
+                renderBasis = basis
+                renderOfferId = offerId
+                Log.i(NOTICE_LOG, "home_swipe_banner")
+                send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+            }
+            return
+        }
         if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
@@ -547,6 +611,35 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             renderBasis = basis
             renderOfferId = offerId
             send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+        }
+    }
+
+    private var frameWindowStart = 0L
+    private val frameCounts = mutableMapOf<String, Int>()
+
+    /**
+     * The target is below the fold when it is not visible, a row above it in the fixed list is, and no
+     * row below it is. Only then does the server offer SCROLL_DOWN (`below_fold_evidence`).
+     */
+    private fun belowFoldEvidence(kind: String, ids: Set<String>): List<String> = when (kind) {
+        "settings_home" -> if ("settings.display" !in ids &&
+            ids.any { it.startsWith(PROBE_ABOVE) } && ids.none { it.startsWith(PROBE_BELOW) }
+        ) listOf("below_fold:settings_home:settings.display", "scroll_down:settings_home") else emptyList()
+        // Launcher apps not on the current home page or app-list page are further up in the app list.
+        "home" -> LAUNCHER_APPS.filterNot { it in ids }.map { "below_fold:home:$it" }
+            .let { if (it.isEmpty()) it else it + "scroll_down:home" }
+        else -> emptyList()
+    }
+
+    /** EXPERIMENT: per-2s counts of loop outcomes (no frame / no stabilization / processed). */
+    private fun logFrames(kind: String?) {
+        val key = kind ?: "no_frame"
+        frameCounts[key] = (frameCounts[key] ?: 0) + 1
+        val now = SystemClock.elapsedRealtime()
+        if (now - frameWindowStart >= 2_000) {
+            if (frameWindowStart != 0L) Log.i(FRAME_LOG, "window ${frameCounts.toSortedMap()}")
+            frameWindowStart = now
+            frameCounts.clear()
         }
     }
 
@@ -633,6 +726,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         local = null
         published = null
         decision = null
+        lastStableKind = null
         clearOverlay("capture_stopped")
         lastSettingsNotice = null
     }
@@ -650,5 +744,17 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         private const val NOTICE_LOG = "HyojasonNotice"
         private const val EVENT_LOG = "HyojasonEvent"
         private const val OCR_LOG = "HyojasonOcr"
+        private const val FRAME_LOG = "HyojasonFrame"
+        private const val PROBE = "probe."
+        private const val HOME_SWIPE_UP = "아래에서 위로 쓸어 올려 앱 목록을 열어 주세요"
+        private val LAUNCHER_APPS = listOf(
+            "launcher.settings", "launcher.clock", "launcher.maps", "launcher.sms", "launcher.gmail")
+        private const val PROBE_ABOVE = "probe.above#"
+        private const val PROBE_BELOW = "probe.below#"
+        private val SETTINGS_ROWS_ABOVE_DISPLAY = listOf(
+            "네트워크 및 인터넷", "연결된 기기", "앱", "알림", "배터리", "저장용량", "소리 및 진동")
+        private val SETTINGS_ROWS_BELOW_DISPLAY = listOf(
+            "배경화면 및 스타일", "접근성", "보안 및 개인 정보 보호", "위치", "안전 및 긴급 상황",
+            "디지털 웰빙 및 자녀 보호 기능", "시스템", "도움말 및 지원")
     }
 }

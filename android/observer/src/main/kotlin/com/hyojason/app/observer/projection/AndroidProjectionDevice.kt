@@ -35,8 +35,10 @@ internal class AndroidProjectionDevice(
                     if (closed) return
                     val surface = reader?.surface
                     val display = virtualDisplay
+                    trace("tick")
                     if (contentVisible && surface != null && display != null &&
                         SystemClock.elapsedRealtime() - lastFrameMs >= 350L) {
+                        trace("refresh")
                         // Static UI can stop producing buffers. Refresh the same approved display
                         // so the safety gate can verify a fresh frame instead of reusing stale pixels.
                         display.surface = null
@@ -113,14 +115,30 @@ internal class AndroidProjectionDevice(
 
     private fun readLatest(source: ImageReader) {
         synchronized(readerLock) {
-            if (source !== reader) return
+            if (source !== reader) return trace("stale_reader")
+            trace("callback")
             source.acquireLatestImage()?.use { image ->
                 val now = SystemClock.elapsedRealtime()
-                if (!contentVisible || now - lastFrameMs < 250) return
+                if (!contentVisible) return trace("hidden_drop")
+                if (now - lastFrameMs < 250) return trace("throttle_drop")
+                trace("published")
                 val pixels = copyPixels(image) ?: return
                 lastFrameMs = now
                 frames.publish(CapturedPixels(frames.epoch, now, pixels))
             }
+        }
+    }
+
+    // EXPERIMENT (#37): per-2s counts of capture callbacks. Counts only, no pixels.
+    private val traceCounts = mutableMapOf<String, Int>()
+    private var traceStart = 0L
+    private fun trace(kind: String) {
+        traceCounts[kind] = (traceCounts[kind] ?: 0) + 1
+        val now = SystemClock.elapsedRealtime()
+        if (now - traceStart >= 2_000) {
+            if (traceStart != 0L) android.util.Log.i("HyojasonCapture", "window visible=$contentVisible ${traceCounts.toSortedMap()}")
+            traceStart = now
+            traceCounts.clear()
         }
     }
 
