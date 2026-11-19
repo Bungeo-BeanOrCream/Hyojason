@@ -120,3 +120,11 @@ try {
     subst.exe $drive /D
 }
 ```
+
+## B-06 호출부 연결 (2026-11-19)
+
+- `ParentGuideFlow.run`(overlay/gate): N-19 `GuideGate.evaluate` → N-20 `ParentSurfaces.render`를 묶어 `NodeResult<ParentGuideData>`(node_id=B-06)를 만든다.
+- 표시 없음/보호 화면/캡처 공백/동의 철회/종료/STALE_BASIS는 먼저 `host.clear()` 후 success/suppressed. `cancel_timer`면 `GateClock`을 취소한다.
+- 정책 거부는 지정 문구만(success/policy_denied). 테두리 불가는 partial/banner_only, 권한·창 실패는 error(outcome=null).
+- JVM 테스트 B06.1~B06.3 통과(`ParentGuideFlowTest` 5건). **B06.4(실제 Settings/Clock 터치 통과)는 UNVERIFIED — 사람이 AVD/실기기에서 확인해야 한다.**
+- 남은 일: 사용자 이벤트(DISMISS_GUIDE/RETURN_TO_CALL)를 N-22로 보내는 연결(B/D 경로 협의), AVD 확인, PR은 사용자 확인 후.
