@@ -11,7 +11,13 @@
 ## N-09 한국어 OCR 엔진
 
 - 2026-11-19 사용자가 APK에 모델을 포함하는 [Google ML Kit 한국어 Text Recognition](https://developers.google.com/ml-kit/vision/text-recognition/v2/android?hl=ko)을 선택했다. 어댑터는 보호 검사와 픽셀 마스킹 이후 승인된 프로필 라벨만 반환한다.
-- 이슈 #3의 화면과 대상 ID 일부를 합성 프레임 프로필에 적용했다. 앱별 라벨, 아이콘, 보호 화면 판별 입력과 대상 위치는 시연 기기에서 확인해야 한다. 합성 프로필을 LIVE 결과로 적용하지 않는다.
+- 이슈 #3 합의 화면·대상 ID와 상태 근거 코드를 합성 프레임 레지스트리에 반영했다. 프로필은 앱 버전과 AVD 이미지가 맞아야 적용하며, 같은 라벨의 대상은 레지스트리의 고정 `#<n>` ID를 쓴다. 앱별 라벨·아이콘·보호 화면 판별은 시연 기기에서 확인한다. 합성 프로필을 LIVE 결과로 적용하지 않는다.
+
+## 이슈 #1~#3 통합 경계
+
+- `2664f12`에서 `NodeResult`, `Diagnostic`, `Basis` 및 계약 테스트를 `android/contract`와 `com.hyojason.app.contract`로 옮겼다. D의 JSON Schema와 필드명·null 허용을 확인했다. 전송 직렬화에서는 상태의 `.code`와 필수 null 키를 보존한다.
+- `e4dad9e`에서 N-10이 두 프레임으로 확인한 화면 종류나 승인 상태 근거가 달라질 때 화면 revision을 올리도록 했다. 스크롤에서 보이는 ID가 달라지면 동일 화면 revision으로 서버 요약을 갱신한다. 공백은 revision을 유지하고 첫 안정 화면은 새 관찰 구간을 시작한다. 이전 화면 revision은 연속 전이에만 제공한다.
+- D 서버는 같은 revision의 가시 대상 갱신을 수락한다. 역경로·수행 판정에 쓸 전이 근거는 시연 환경에서 검증한 코드가 필요하다. [A·D 화면 관찰 합의](https://github.com/Bungeo-BeanOrCream/Hyojason/blob/D/docs/screen-observation-profile.md)
 
 ## N-07 Android 15 확인 항목
 
@@ -23,8 +29,8 @@
 
 ## 진행 상태
 
-- 현재 상태: 로컬 `A`에서 0~4단계를 완료했다. `a0add0f`는 N-08/N-09 정규화·검출과 ML Kit 어댑터, `e1988b8`은 5단계 N-07 MediaProjection 구현이다. 두 라이브러리 assembleDebug와 JVM 테스트 31개가 통과했다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 현재 상태: 로컬 `A`에서 N-07·08·09·10·19를 구현했다. 이슈 #2 공유 모듈과 이슈 #3 프로필·revision을 반영했다. 두 라이브러리 assembleDebug와 JVM 테스트 37개가 통과했다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.11.1, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 검증용 APK를 API 35 기기에서 실행해 N-07을 확인한다. 그 뒤 6단계 N-20 Android 창 렌더와 Settings·Clock의 터치 전달을 검증한다.
+- 다음 할 일: 검증용 APK를 API 35 기기에서 실행해 N-07을 확인한다. 그 뒤 N-20 Android 창 렌더와 Settings·Clock의 터치 전달을 검증한다. 골격과 공유 모듈을 먼저 올리는 PR은 사용자 확인을 받는다.
 - 하면 안 되는 일: 계약 문서와 다른 슬롯 경로 수정, `main` 직접 커밋, 확인 전 푸시·PR, fixture의 LIVE 처리.
 - 막힌 것: API 35 AVD 또는 기기에서 사용자가 확인한 N-07 결과가 필요하다.
