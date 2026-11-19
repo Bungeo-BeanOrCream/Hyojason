@@ -130,7 +130,8 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
             goal_context = [e["payload"]["goal_context"] for e in collect(cws)
                             if e["type"] == "help.view" and "goal_context" in e["payload"]]
             assert goal_context[-1] == {"goal_id": "CLOCK_ALARM", "guide_shown": False,
-                                        "arrival_suspected": False, "mode": "CALL_CHILD_LED"}
+                                        "arrival_suspected": False, "mode": "CALL_CHILD_LED",
+                                        "approved_slots": {"day": "tomorrow", "time": "06:00"}}
             original_help = current.snapshot.help_id
             assert client.post(f"/v1/calls/{call_id}/end", headers=helper).status_code == 200
             assert current.snapshot.mode == "POST_CALL_AGENT"

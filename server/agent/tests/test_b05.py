@@ -566,3 +566,73 @@ class GoalSlotContractTests(TestCase):
         self.assertEqual([c.target_id for c in _goal_candidates(goal, empty)], ["sms.text_field"])
         self.assertEqual([c.target_id for c in _goal_candidates(goal, drafted)], ["sms.send"])
         self.assertEqual([c.target_id for c in _goal_candidates(goal, old)], ["sms.text_field"])
+
+
+class IndirectInstructionTests(TestCase):
+    """N-15: 버튼 이름을 직접 말하지 않는 이동 표현도 지시로 받고, 부정·잡담은 지시로 받지 않는다."""
+
+    @staticmethod
+    def target(text):
+        from server.agent.interpret_child_turn import parse_instruction
+
+        draft = parse_instruction(FinalUtterance(
+            utterance_id="u", utterance_seq=1, speaker_role="CHILD", text=text, call_id="call", source="FIXTURE"))
+        return (draft.target_key or "GENERIC") if draft else None
+
+    def test_N15_indirect_navigation_phrases_name_the_target(self):
+        for text, want in (
+            ("디스플레이 메뉴로 들어가줘", "settings.display"),
+            ("디스플레이 쪽으로 가 봐", "settings.display"),
+            ("디스플레이로 이동해 줘", "settings.display"),
+            ("디스플레이 탭해", "settings.display"),
+            ("디스플레이 메뉴 있지 거기로 가", "settings.display"),
+            ("화면 자동 꺼짐 메뉴로 가", "settings.screen_timeout"),
+            ("10분으로 해 줘", "settings.timeout.10m"),
+            ("디스플레이 말고 화면 자동 꺼짐으로 가", "settings.screen_timeout"),
+            ("거기로 가 봐", "GENERIC"),
+            ("설정 어플 들어가줘", "launcher.settings"),
+            ("문자 어플 들어가", "launcher.sms"),
+            ("시계 어플리케이션 열어 줘", "launcher.clock"),
+        ):
+            with self.subTest(text=text):
+                self.assertEqual(self.target(text), want)
+
+    def test_N15_negation_questions_and_small_talk_are_not_instructions(self):
+        for text in ("디스플레이 들어가지 마", "디스플레이 말고 소리로 가", "엄마 밥 먹으러 가",
+                     "디스플레이 메뉴가 어디 있어?", "화면 자동 꺼짐 하지 마", "오늘 날씨 좋다"):
+            with self.subTest(text=text):
+                self.assertIsNone(self.target(text))
+
+
+class BelowFoldCatalogTests(TestCase):
+    """B-05/N-16: the integrated server accepts the below-fold evidence a device sends for a known target."""
+
+    def test_N16_settings_display_below_fold_codes_are_in_the_mvp_catalog(self):
+        from server.agent.profiles import below_fold_evidence
+        from server.mvp import below_fold_codes
+
+        codes = ("below_fold:settings_home:settings.display", "scroll_down:settings_home")
+        self.assertTrue(set(codes) <= set(below_fold_codes()))
+        observed = screen("settings_home", 1, (), evidence=codes)
+        self.assertEqual(below_fold_evidence(observed, "settings.display"), ("scroll_down:settings_home", codes[0]))
+
+
+class InCallGoalStepTests(TestCase):
+    """EXPERIMENT (#37): 통화 중 직접 지시 없이 승인된 목표만 있을 때 다음 단계 대상."""
+
+    @staticmethod
+    def goal(goal_id, slots=None):
+        return Goal(goal_id=goal_id, goal_revision=1, source_utterance_id="turn", approved_slots=slots or {})
+
+    def test_goal_step_picks_visible_or_below_fold_route_target(self):
+        from server.agent.profiles import goal_step
+
+        alarm = self.goal("CLOCK_ALARM", {"day": "tomorrow", "time": "07:00"})
+        self.assertEqual(goal_step(alarm, screen("home", 1, ("launcher.clock", "launcher.gmail"))), "launcher.clock")
+        hidden = screen("home", 1, ("launcher.gmail",),
+                        evidence=("below_fold:home:launcher.clock", "scroll_down:home"))
+        self.assertEqual(goal_step(alarm, hidden), "launcher.clock")
+        self.assertIsNone(goal_step(alarm, screen("home", 1, ("launcher.gmail",))))
+        font = self.goal("SET_FONT")
+        self.assertEqual(goal_step(font, screen("settings_home", 2, ("settings.display",))), "settings.display")
+        self.assertIsNone(goal_step(font, screen("settings_display", 3, ())))

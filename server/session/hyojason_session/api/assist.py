@@ -75,6 +75,8 @@ class AssistedSessionHub(SessionHub):
                 goal_id = view.goal.goal_id if view.goal and view.goal.goal_id in GOAL_LABELS else None
                 if goal_id or shown:
                     context = {"goal_id": goal_id, "guide_shown": shown, "mode": view.mode}
+                    if goal_id:  # EXPERIMENT (#37): the time picker guide needs the approved time.
+                        context["approved_slots"] = dict(view.goal.approved_slots)
                     context["arrival_suspected"] = control.arrival_state(view.help_id) == "SUSPECTED"
                     event = replace(event, payload={**event.payload, "goal_context": context})
         return super().deliver(pair_id, role, event)
@@ -118,6 +120,10 @@ class AssistedSessionHub(SessionHub):
                                before=before.screen if transition else None)
             elif kind == "instruction.drafted" and after.screen is not None:
                 self._schedule(control, "instruction.accepted")
+            elif (kind in ("goal.drafted", "action.assessed") and after.mode == "CALL_CHILD_LED"
+                  and after.goal is not None and after.instruction is None and after.screen is not None):
+                # EXPERIMENT (#37): 목표가 정해졌거나 지시가 끝나면 지금 화면으로 목표의 다음 단계를 다시 본다.
+                self._schedule(control, "screen.observed")
         return update
 
     def agent_snapshot(self, control) -> AgentSnapshot:

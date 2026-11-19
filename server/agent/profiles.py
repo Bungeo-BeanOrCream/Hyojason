@@ -83,6 +83,11 @@ TARGETS: Final[dict[str, TargetProfile]] = {
     "gmail.demo_mail": TargetProfile(
         "gmail_inbox", "시연 메일", ("테스트 메일",), "gmail_mail_detail"
     ),
+    # EXPERIMENT (#37): Google 앱 첫 화면의 글자 버튼. 설정과 달리 타사 오버레이를 숨기지 않아
+    # 빨간 테두리가 보이는 경로를 시험한다. 목표·도착 근거는 아직 없다.
+    "google.photo_search": TargetProfile("google_home", "사진 검색", ("이미지 검색",)),
+    "google.translate": TargetProfile("google_home", "텍스트 번역", ("번역",)),
+    "google.saved": TargetProfile("google_home", "저장됨", ("저장한 항목",)),
 }
 GOAL_LABELS: Final[dict[GoalId, str]] = {
     "SET_FONT": "설정에서 글자 크기를 키우기",
@@ -181,6 +186,22 @@ def below_fold_evidence(screen: ScreenState, target_id: str) -> tuple[str, ...]:
             if container and match in screen.evidence_codes:
                 return (match, code)
     return ()
+
+
+def goal_step(goal: Goal, screen: ScreenState) -> str | None:
+    """EXPERIMENT (#37): 통화 중 직접 지시가 없을 때 목표 경로에서 지금 화면의 다음 버튼.
+
+    경로를 뒤에서부터 보며 현재 화면에 보이거나 화면 아래에 있다고 확인된 첫 TAP 대상을 고른다.
+    """
+    if arrival_evidence(goal, screen):
+        return None
+    for target_id in reversed(GOAL_ROUTES.get(goal.goal_id, ())):
+        profile = TARGETS[target_id]
+        if profile.action != "TAP" or profile.screen != screen.screen_kind:
+            continue
+        if target_id in screen.target_ids or below_fold_evidence(screen, target_id):
+            return target_id
+    return None
 
 
 def required_arrival_evidence(goal: Goal) -> tuple[str, ...]:

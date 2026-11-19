@@ -561,7 +561,13 @@ class HelpSession:
             _require(basis.event_seq is not None and basis.event_seq >= state.call_fence, "STALE_BASIS")
         _require(s.help_state != "ENDED", "NOT_APPLICABLE")  # 새 도움은 help.link_approved로만 연다
         turn = _id(p["source_utterance_id"])
-        if kind == "instruction.drafted":
+        # EXPERIMENT (#37, D 리뷰 필요): 승인된 목표의 다음 단계 초안. 활성 지시가 없을 때만, 목표를 만든
+        # 발화를 출처로 받는다. 자녀의 새 지시는 그 발화의 초안으로 들어와 이것을 대체한다.
+        goal_step = (kind == "instruction.drafted" and s.goal is not None and s.instruction is None
+                     and turn == s.goal.source_utterance_id)
+        if goal_step:
+            _basis(s, basis, "goal_revision")
+        elif kind == "instruction.drafted":
             # 지시는 지시하는 쪽의 최신 발화에만 받는다.
             _basis(s, basis, "utterance_seq")
             _require(turn == state.latest_turn_id, "STALE_BASIS")
@@ -584,6 +590,8 @@ class HelpSession:
             state.previous_screen_revision = None
             state.update(instruction=instruction, instruction_revision=revision, help_state="ACTIVE")
             effects.append(("instruction.accepted", s.assisted_role))
+            if goal_step:
+                return "state_applied"
         else:
             # A sibling instruction may already have committed for the same turn.
             # Only the goal scope participates in this comparison.

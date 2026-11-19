@@ -36,6 +36,7 @@ SCREEN_APPS: Mapping[str, str] = {
     "gmail_nav_drawer": "gmail",
     "gmail_inbox": "gmail",
     "gmail_mail_detail": "gmail",
+    "google_home": "google",  # EXPERIMENT (#37)
 }
 
 TARGET_IDS: tuple[str, ...] = (
@@ -46,6 +47,7 @@ TARGET_IDS: tuple[str, ...] = (
     "maps.search_box", "maps.demo_place_result", "maps.directions",
     "sms.compose", "sms.demo_recipient", "sms.text_field", "sms.send",
     "gmail.inbox", "gmail.demo_mail",
+    "google.photo_search", "google.translate", "google.saved",  # EXPERIMENT (#37)
 )
 
 STATE_EVIDENCE: tuple[str, ...] = (
