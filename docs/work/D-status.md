@@ -52,9 +52,11 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 저장: DB 없이 서버 메모리의 통화 상태에만 두고 통화·도움 종료와 함께 정리한다. 상태는 계속 pair/call/help_id로 관리하며 trace_id는 기록을 묶는 꼬리표다.
    - 남은 합의: 제어 이벤트 봉투에 `trace_id` 필드 추가 (A·B, [계약 추가 제안 6장](D-role-view-contract.md)). 서버 구현은 제어 서버와 함께 한다 — 지금 `SessionControl`은 명령마다 새 trace_id를 만든다.
 
+7. **웹 프레임워크는 FastAPI — 결정(2026-11-19, 사용자).** 서버가 Python 3.11+이고 WebSocket과 요청 형식 검증을 기본 지원한다. `server/session` 안에 두고 한 프로세스로 실행하며, 상태는 DB 없이 메모리(결정 메모 6). 엔드포인트 분담은 [이슈 #10](https://github.com/Bungeo-BeanOrCream/Hyojason/issues/10)에 제안: D가 서버 뼈대·`WS /v1/events`·`GET /v1/help/current`, 페어·통화는 B 판단 함수를 D가 연결.
+
 ## 다음 할 일
 
-1. **제어 서버(앱 연동의 전제, 아직 없음).** 웹 프레임워크를 정하고 다음을 만든다.
+1. **제어 서버(앱 연동의 전제, 아직 없음).** FastAPI로 다음을 만든다 (결정 메모 7, 분담은 이슈 #10).
    - REST `GET /v1/help/current`(N-13), `WS /v1/events` 인증 연결.
    - 수신: `help.complete/stop` → `SessionControl.submit_command`, N-18 결과 → `submit_arrival`, 그 밖의 이벤트 → `SessionControl.apply`.
    - 송신: N-11 효과(`instruction.accepted/cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `arrival.*`, `guide.suspend`, `observation.stop` 등)를 역할별로 보내는 경로. 지금은 계산만 되고 보내는 곳이 없다(`help.ended`만 EventSink로 나감).
@@ -77,6 +79,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
+- 이슈 #10: 엔드포인트 분담에 대한 B 동의, B 판단 함수 위치, 인증 토큰 형식 답변 대기. 그 전에는 페어·통화 자리에 Mock.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
 - 이슈 #1 Android 골격 전: 클라이언트 쪽 N-13·N-23 처리의 실제 구현·검증 불가.
