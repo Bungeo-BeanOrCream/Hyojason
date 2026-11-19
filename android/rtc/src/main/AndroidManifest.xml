@@ -1,1 +1,19 @@
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Android 12+에서 Bluetooth 이어폰을 출력 후보로 보려면 필요(audioswitch는 API 30까지만 선언) -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- LiveKit SDK가 넣는 카메라 권한 제거: 음성만 쓴다(화면·영상 트랙 금지, AGENTS.md) -->
+    <uses-permission android:name="android.permission.CAMERA" tools:node="remove" />
+    <application>
+        <service
+            android:name="com.hyojason.app.rtc.CallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+    </application>
+</manifest>
