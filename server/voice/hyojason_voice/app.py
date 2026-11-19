@@ -3,11 +3,11 @@
 실행: uvicorn hyojason_voice.app:app --reload --port 8000  (에뮬레이터에서는 http://10.0.2.2:8000)
 
 통화가 수락되면 STT worker를 같은 이벤트 루프의 작업으로 띄운다(_start_worker). worker가 방에서 본
-참가·퇴장이 N-03 JOINED/END가 되고, 확정문이 N-06을 거쳐 speech.final이 된다. 그래서 LiveKit 웹훅이 필요 없다.
+참가·퇴장이 N-03 JOINED/END가 되고, 확정문이 N-06을 거쳐 speech.final이 된다.
+LiveKit 웹훅(/v1/livekit/webhook)도 같은 JOINED/END로 들어온다 → worker가 죽어도 참가·퇴장은 남는다(중복은 N-03이 흡수).
 ponytail: 프로세스 하나가 모든 통화의 worker를 돈다. 통화가 많아지면 LiveKit Agents dispatch로 분리.
 
 아직 없는 것:
-- 실제 인증. 지금은 X-Actor-Id / X-Pair-Id 헤더를 믿는다(dev 전용).
 - D로 가는 WS 전송. 발행 이벤트는 OUTBOX에 쌓고 /v1/dev/outbox로 본다.
 
 핸들러와 worker 콜백은 상태를 바꾸는 동안 await하지 않는다 → 이벤트 루프 하나에서 한 번에 하나씩 돈다.
@@ -23,7 +23,7 @@ from collections import deque
 from dataclasses import asdict
 from datetime import timedelta
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from hyojason_session.common.enums import CallState, Role, Source
 from hyojason_session.common.result import ErrorCode, NodeResult, Status, new_id
 from hyojason_session.common.serialize import to_jsonable
@@ -33,8 +33,9 @@ from livekit import api as lk
 from pydantic import BaseModel, Field
 
 from . import worker
+from .auth import Tokens
 from .call import CallEndReason, CallRegistry, Operation, start_or_close_call
-from .common import identity
+from .common import identity, parse_identity
 from .consent import Capability, ConsentState, ConsentUpdate, Purpose, resolve_consent
 from .events import MANUAL_TEST, STT, call_event, speech_final_event
 from .finalize import FinalizeRequest, TurnFinalizer
@@ -46,6 +47,7 @@ logging.getLogger("hyojason").setLevel(logging.INFO)  # 원문은 찍지 않는�
 log = logging.getLogger("hyojason.app")
 app = FastAPI(title="hyojason-voice (B)")
 pairs = PairRegistry()
+tokens = Tokens()
 calls = CallRegistry()
 consents: dict[str, ConsentState] = {}
 finalizers: dict[str, TurnFinalizer] = {}
@@ -82,11 +84,24 @@ def _reply(result: NodeResult) -> dict:
     }
 
 
-def _actor(actor_id: str, pair_id: str) -> ActorContext:
-    role = pairs.role_of(pair_id, actor_id)
+def _actor(authorization: str | None) -> ActorContext:
+    """Bearer 토큰 → 확정된 페어의 구성원. 토큰이 없거나 페어가 아직 대기 중이면 403."""
+    actor_id = tokens.actor_of(authorization)
+    pair_id = pairs.pair_of(actor_id) if actor_id else None
+    role = pairs.role_of(pair_id, actor_id) if pair_id else None
     if role is None:
         _fail(ErrorCode.UNAUTHORIZED)
     return ActorContext(actor_id, pair_id, role)
+
+
+def _device(authorization: str | None) -> tuple[str, str | None]:
+    """invite/claim 전용: 토큰이 있으면 그 기기, 없으면 새 기기로 토큰을 발급한다. (actor_id, 새 토큰 또는 None)
+    ponytail: 토큰 없이 오면 매번 새 actor라 actor별 코드 실패 한도(MAX_CLAIM_FAILURES)를 우회할 수 있다
+    (헤더를 믿던 이전 방식도 같았다). 공개 서버로 열면 IP별 속도 제한을 앞에 둘 것.
+    """
+    if actor_id := tokens.actor_of(authorization):
+        return actor_id, None
+    return tokens.issue()
 
 
 def _consent(pair_id: str) -> ConsentState:
@@ -133,11 +148,12 @@ class InviteBody(BaseModel):
 
 
 @app.post("/v1/pairs/invite")
-async def invite(body: InviteBody, x_actor_id: str = Header(min_length=1, max_length=128)):
-    issued = pairs.issue_invite(x_actor_id, body.role)
+async def invite(body: InviteBody, authorization: str | None = Header(None)):
+    actor_id, token = _device(authorization)
+    issued = pairs.issue_invite(actor_id, body.role)
     if issued is None:  # 이미 페어가 확정됐거나 대기 중 페어에서 다른 역할 (1:1)
         _fail(ErrorCode.DUPLICATE)
-    return {"pair_id": issued[0], "invite_code": issued[1]}
+    return {"pair_id": issued[0], "invite_code": issued[1]} | ({"token": token} if token else {})
 
 
 class ClaimBody(BaseModel):
@@ -147,9 +163,11 @@ class ClaimBody(BaseModel):
 
 
 @app.post("/v1/pairs/claim")
-async def claim(body: ClaimBody, x_actor_id: str = Header(min_length=1, max_length=128)):
-    req = PairRequest(x_actor_id, body.role, body.invite_code, body.pair_id)
-    return _reply(resolve_pair(req, pairs, trace_id=new_id("trace")))
+async def claim(body: ClaimBody, authorization: str | None = Header(None)):
+    """코드 입력(토큰 없음 → 새 토큰 발급) 또는 코드를 만든 쪽의 대기 확인(그때 받은 토큰)."""
+    actor_id, token = _device(authorization)
+    reply = _reply(resolve_pair(PairRequest(actor_id, body.role, body.invite_code, body.pair_id), pairs, trace_id=new_id("trace")))
+    return reply | ({"token": token} if token else {})
 
 
 # ---- N-02 ----
@@ -163,15 +181,16 @@ class ConsentBody(BaseModel):
 
 
 @app.get("/v1/consent")
-async def get_consent(x_actor_id: str = Header(), x_pair_id: str = Header()):
+async def get_consent(authorization: str | None = Header(None)):
     """STALE_BASIS를 받은 앱이 현재 동의를 다시 읽는 경로."""
-    _actor(x_actor_id, x_pair_id)
+    x_pair_id = _actor(authorization).pair_id
     return to_jsonable(_consent(x_pair_id).view())
 
 
 @app.post("/v1/consent")
-async def consent(body: ConsentBody, x_actor_id: str = Header(), x_pair_id: str = Header()):
-    actor = _actor(x_actor_id, x_pair_id)
+async def consent(body: ConsentBody, authorization: str | None = Header(None)):
+    actor = _actor(authorization)
+    x_pair_id = actor.pair_id
     upd = ConsentUpdate(
         x_pair_id, body.call_id, actor.role, Purpose.ANALYSIS, body.enabled,
         body.consent_revision, frozenset(body.device_capabilities),
@@ -267,27 +286,27 @@ def _start_worker(call) -> None:
 
 
 @app.post("/v1/calls")
-async def start_call(x_actor_id: str = Header(), x_pair_id: str = Header()):
-    return _call_op(Operation.START, _actor(x_actor_id, x_pair_id))
+async def start_call(authorization: str | None = Header(None)):
+    return _call_op(Operation.START, _actor(authorization))
 
 
 @app.post("/v1/calls/{call_id}/accept")
-async def accept_call(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
-    return _call_op(Operation.ACCEPT, _actor(x_actor_id, x_pair_id), call_id)
+async def accept_call(call_id: str, authorization: str | None = Header(None)):
+    return _call_op(Operation.ACCEPT, _actor(authorization), call_id)
 
 
 @app.post("/v1/calls/{call_id}/end")
-async def end_call(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
-    return _call_op(Operation.END, _actor(x_actor_id, x_pair_id), call_id)
+async def end_call(call_id: str, authorization: str | None = Header(None)):
+    return _call_op(Operation.END, _actor(authorization), call_id)
 
 
 @app.get("/v1/calls/current")
-async def current_call(x_actor_id: str = Header(), x_pair_id: str = Header()):
+async def current_call(authorization: str | None = Header(None)):
     """페어의 진행 중 통화(없으면 null). 앱이 수신·수락·종료를 알기 위해 짧은 주기로 묻는다.
 
     ponytail: 폴링. D의 WS /v1/events가 생기면 call.* 이벤트로 바꾸고 이 경로는 재연결 복구용으로만 둔다.
     """
-    _actor(x_actor_id, x_pair_id)
+    x_pair_id = _actor(authorization).pair_id
     for c in calls.expire():  # 응답 없는 통화를 여기서도 끝낸다
         _ended(c, None)
     cid = calls.active_by_pair.get(x_pair_id)
@@ -305,9 +324,9 @@ async def current_call(x_actor_id: str = Header(), x_pair_id: str = Header()):
 
 
 @app.post("/v1/calls/{call_id}/rtc-token")
-async def rtc_token(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
+async def rtc_token(call_id: str, authorization: str | None = Header(None)):
     """수락된 진행 중 통화의 참여자에게만, 그 통화 방(room=call_id) 마이크 발행 권한만 준다."""
-    actor = _actor(x_actor_id, x_pair_id)
+    actor = _actor(authorization)
     call = calls.get(call_id)
     if call is None or call.pair_id != actor.pair_id or not call.accepted:
         _fail(ErrorCode.UNAUTHORIZED)  # 다른 페어·수락 전은 같은 오류
@@ -333,9 +352,9 @@ async def rtc_token(call_id: str, x_actor_id: str = Header(), x_pair_id: str = H
 
 
 @app.post("/v1/dev/calls/{call_id}/joined")
-async def dev_joined(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
+async def dev_joined(call_id: str, authorization: str | None = Header(None)):
     """worker 없이(키 없이) 테스트할 때 참가를 손으로 알린다. 평소에는 worker가 한다."""
-    return _call_op(Operation.JOINED, _actor(x_actor_id, x_pair_id), call_id)
+    return _call_op(Operation.JOINED, _actor(authorization), call_id)
 
 
 class SpeechBody(BaseModel):
@@ -344,13 +363,38 @@ class SpeechBody(BaseModel):
     text: str = Field(min_length=1, max_length=500)
 
 
+@app.post("/v1/livekit/webhook")
+async def livekit_webhook(request: Request, authorization: str | None = Header(None)):
+    """LiveKit 참가·퇴장 웹훅(#5). 서명(Authorization JWT의 sha256 = 본문 해시, API 키로 서명)이 맞을 때만 믿는다.
+
+    방 이름 = call_id, identity = `{pair_id}:{role}`. 다른 페어·모르는 참가자(stt-worker 등)는 무시한다.
+    """
+    if not (os.environ.get("LIVEKIT_API_KEY") and os.environ.get("LIVEKIT_API_SECRET")):
+        _fail(ErrorCode.DEPENDENCY_UNAVAILABLE)
+    try:
+        ev = lk.WebhookReceiver(lk.TokenVerifier()).receive((await request.body()).decode(), authorization or "")
+    except Exception:
+        _fail(ErrorCode.UNAUTHORIZED)
+    if ev.event not in ("participant_joined", "participant_left"):
+        return {"ignored": ev.event}
+    who, call = parse_identity(ev.participant.identity), calls.get(ev.room.name)
+    if who is None or call is None or call.pair_id != who[0]:
+        return {"ignored": "unknown_participant"}
+    member = ActorContext(pairs.members[call.pair_id][who[1]], call.pair_id, who[1])
+    if ev.event == "participant_joined":
+        r = _transition(Operation.JOINED, member, call.call_id)
+    else:  # 앱의 /end 없이 나감 = RTC 끊김 (이미 끝난 통화면 N-03이 그대로 둔다)
+        r = _transition(Operation.END, member, call.call_id, CallEndReason.RTC_FAILED)
+    return {"outcome": r.outcome}
+
+
 @app.post("/v1/dev/speech-final")
-async def dev_speech_final(body: SpeechBody, x_actor_id: str = Header(), x_pair_id: str = Header()):
+async def dev_speech_final(body: SpeechBody, authorization: str | None = Header(None)):
     """텍스트 입력 스텁. C·D가 음성 없이 통합할 수 있게 N-06을 거쳐 speech.final을 낸다.
 
     실제 STT처럼 활성 통화 + 양쪽 동의가 있어야 통과한다.
     """
-    _actor(x_actor_id, x_pair_id)
+    x_pair_id = _actor(authorization).pair_id
     fin = finalizers.get(body.call_id)
     if fin is None or fin.pair_id != x_pair_id:
         _fail(ErrorCode.STALE_BASIS)

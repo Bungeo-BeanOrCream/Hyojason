@@ -17,15 +17,14 @@ data class ServerReply(val code: Int, val body: String) {
 }
 
 /**
- * server/voice 호출 하나. 블로킹이라 IO 스레드에서 부른다. 인증은 아직 dev 헤더(X-Actor-Id/X-Pair-Id)뿐이다.
+ * server/voice 호출 하나. 블로킹이라 IO 스레드에서 부른다. 인증은 invite/claim 때 받은 기기 토큰(#10, Bearer).
  * 토큰·본문은 로그에 남기지 않는다.
  */
 fun serverRequest(
     serverBaseUrl: String,
     method: String,
     path: String,
-    actorId: String,
-    pairId: String? = null,
+    authToken: String?,
     json: JSONObject? = null,
 ): ServerReply {
     val conn = URL("${serverBaseUrl.trimEnd('/')}$path").openConnection() as HttpURLConnection
@@ -33,8 +32,7 @@ fun serverRequest(
         conn.requestMethod = method
         conn.connectTimeout = 5_000
         conn.readTimeout = 5_000
-        conn.setRequestProperty("X-Actor-Id", actorId)
-        pairId?.let { conn.setRequestProperty("X-Pair-Id", it) }
+        authToken?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
         if (json != null) {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
@@ -49,8 +47,8 @@ fun serverRequest(
 }
 
 /** `POST /v1/calls/{call_id}/rtc-token`: 수락된 통화의 참여자에게만 나온다. */
-fun fetchRtcToken(serverBaseUrl: String, actorId: String, pairId: String, callId: String): RtcToken {
-    val r = serverRequest(serverBaseUrl, "POST", "/v1/calls/$callId/rtc-token", actorId, pairId)
+fun fetchRtcToken(serverBaseUrl: String, authToken: String, callId: String): RtcToken {
+    val r = serverRequest(serverBaseUrl, "POST", "/v1/calls/$callId/rtc-token", authToken)
     if (!r.ok) throw IllegalStateException("rtc-token ${r.detail}")
     val json = JSONObject(r.body)
     return RtcToken(json.getString("url"), json.getString("token"), json.getString("room"), json.getString("identity"))
@@ -60,7 +58,7 @@ fun fetchRtcToken(serverBaseUrl: String, actorId: String, pairId: String, callId
  * `POST /v1/calls/{call_id}/end`: 끊기 버튼. 방을 나가기 전에 불러야 서버에 HANGUP으로 남는다
  * (그냥 나가면 서버 worker가 퇴장을 보고 RTC_FAILED로 끝낸다). 409(이미 끝남)는 성공으로 본다.
  */
-fun endCall(serverBaseUrl: String, actorId: String, pairId: String, callId: String) {
-    val r = serverRequest(serverBaseUrl, "POST", "/v1/calls/$callId/end", actorId, pairId)
+fun endCall(serverBaseUrl: String, authToken: String, callId: String) {
+    val r = serverRequest(serverBaseUrl, "POST", "/v1/calls/$callId/end", authToken)
     if (!r.ok && r.code != 409) throw IllegalStateException("end ${r.detail}")
 }

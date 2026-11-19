@@ -26,12 +26,19 @@ def _client():
     return TestClient(m.app)
 
 
+def _pair(c, inviter="PARENT"):
+    """초대·코드 입력으로 페어를 만들고 각자 받은 Bearer 토큰 헤더를 돌려준다. (P, C, pair_id)"""
+    other = "CHILD" if inviter == "PARENT" else "PARENT"
+    inv = c.post("/v1/pairs/invite", json={"role": inviter}).json()
+    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == inv["pair_id"])
+    r = c.post("/v1/pairs/claim", json={"role": other, "invite_code": code}).json()
+    assert r["outcome"] == "paired"
+    h = {inviter: {"Authorization": f"Bearer {inv['token']}"}, other: {"Authorization": f"Bearer {r['token']}"}}
+    return h["PARENT"], h["CHILD"], inv["pair_id"]
+
+
 def _active_call(c):
-    pid = c.post("/v1/pairs/invite", json={"role": "PARENT"}, headers={"X-Actor-Id": "P"}).json()["pair_id"]
-    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
-    r = c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": code}, headers={"X-Actor-Id": "C"})
-    assert r.json()["outcome"] == "paired"
-    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    P, C, pid = _pair(c)
     cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
     c.post(f"/v1/calls/{cid}/accept", headers=C)
     c.post(f"/v1/dev/calls/{cid}/joined", headers=P)
@@ -86,20 +93,18 @@ def test_stale_consent_revision_is_rejected():
 
 def test_rejects_bad_input_and_strangers():
     c = _client()
-    r = c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": "12ab"}, headers={"X-Actor-Id": "Z"})
+    r = c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": "12ab"})
     assert r.status_code == 422
-    assert c.post("/v1/calls", headers={"X-Actor-Id": "Z", "X-Pair-Id": "nope"}).status_code == 403
-    assert c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": "123456"}).status_code == 422  # 헤더 없음
+    assert c.post("/v1/calls", headers={"Authorization": "Bearer nope"}).status_code == 403
+    r = c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": "123456"})  # 없는 코드
+    assert r.status_code == 403 and "token" not in r.json()  # 실패하면 토큰을 주지 않는다
 
 
 def test_rtc_token_only_for_accepted_call_microphone_only(monkeypatch):
     from livekit import api as lk
 
     c = _client()
-    pid = c.post("/v1/pairs/invite", json={"role": "PARENT"}, headers={"X-Actor-Id": "P"}).json()["pair_id"]
-    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
-    c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": code}, headers={"X-Actor-Id": "C"})
-    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    P, C, pid = _pair(c, "PARENT")
     cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
 
     for k in ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET"):
@@ -117,7 +122,7 @@ def test_rtc_token_only_for_accepted_call_microphone_only(monkeypatch):
     assert claims.video.room == cid and claims.video.room_join
     assert claims.video.can_publish_sources == ["microphone"] and not claims.video.can_publish_data
 
-    assert c.post(f"/v1/calls/{cid}/rtc-token", headers={"X-Actor-Id": "Z", "X-Pair-Id": pid}).status_code == 403
+    assert c.post(f"/v1/calls/{cid}/rtc-token", headers={"Authorization": "Bearer nope"}).status_code == 403
     c.post(f"/v1/calls/{cid}/end", headers=P)
     assert c.post(f"/v1/calls/{cid}/rtc-token", headers=C).status_code == 409  # 종료 후
 
@@ -125,10 +130,7 @@ def test_rtc_token_only_for_accepted_call_microphone_only(monkeypatch):
 def test_worker_hooks_drive_call_and_speech_final():
     """worker가 본 참가·퇴장·확정문이 N-03/N-06을 거쳐 이벤트가 된다 (LiveKit 없이 콜백만)."""
     c = _client()
-    pid = c.post("/v1/pairs/invite", json={"role": "PARENT"}, headers={"X-Actor-Id": "P"}).json()["pair_id"]
-    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
-    c.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": code}, headers={"X-Actor-Id": "C"})
-    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    P, C, pid = _pair(c, "PARENT")
     cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
     c.post(f"/v1/calls/{cid}/accept", headers=C)
     assert cid not in m.workers
@@ -187,10 +189,7 @@ def test_call_end_deletes_livekit_room(monkeypatch):
 
 def test_current_call_for_polling():
     c = _client()
-    pid = c.post("/v1/pairs/invite", json={"role": "CHILD"}, headers={"X-Actor-Id": "C"}).json()["pair_id"]
-    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
-    c.post("/v1/pairs/claim", json={"role": "PARENT", "invite_code": code}, headers={"X-Actor-Id": "P"})
-    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    P, C, pid = _pair(c, "CHILD")
     assert c.get("/v1/calls/current", headers=P).json() is None
     cid = c.post("/v1/calls", headers=C).json()["data"]["call_id"]  # 자녀 발신
     cur = c.get("/v1/calls/current", headers=P).json()
@@ -199,4 +198,59 @@ def test_current_call_for_polling():
     assert c.get("/v1/calls/current", headers=C).json()["accepted"] is True
     c.post(f"/v1/calls/{cid}/end", headers=P)
     assert c.get("/v1/calls/current", headers=C).json() is None
-    assert c.get("/v1/calls/current", headers={"X-Actor-Id": "Z", "X-Pair-Id": pid}).status_code == 403
+    assert c.get("/v1/calls/current", headers={"Authorization": "Bearer nope"}).status_code == 403
+
+
+def test_b01_bearer_token_auth():
+    """#10 합의안: invite/claim 때 받은 토큰만 믿는다. 헤더로 actor·pair를 바꿔 행세할 수 없다."""
+    c = _client()
+    inv = c.post("/v1/pairs/invite", json={"role": "PARENT"}).json()
+    P = {"Authorization": f"Bearer {inv['token']}"}
+    assert c.post("/v1/calls", headers=P).status_code == 403  # 아직 대기 중인 페어는 통화 불가
+    wait = {"role": "PARENT", "pair_id": inv["pair_id"]}
+    assert c.post("/v1/pairs/claim", json=wait).status_code == 403  # 대기 확인은 만든 쪽 토큰으로만
+    assert c.post("/v1/pairs/claim", json=wait, headers=P).json()["outcome"] == "pending"
+
+    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == inv["pair_id"])
+    C = {"Authorization": f"Bearer {c.post('/v1/pairs/claim', json={'role': 'CHILD', 'invite_code': code}).json()['token']}"}
+    assert c.post("/v1/pairs/claim", json=wait, headers=P).json()["outcome"] == "paired"
+    assert "token" not in c.post("/v1/pairs/claim", json=wait, headers=P).json()  # 기존 기기에는 새로 주지 않음
+    cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
+
+    P2, _, _ = _pair(c)  # 다른 가족
+    assert c.post(f"/v1/calls/{cid}/accept", headers=P2).status_code in (403, 409)
+    assert c.post(f"/v1/calls/{cid}/accept", headers={"Authorization": inv["token"]}).status_code == 403  # Bearer 없음
+    assert c.post(f"/v1/calls/{cid}/accept", headers=C).json()["outcome"] == "waiting"
+
+
+def test_b01_livekit_webhook_joined_left(monkeypatch):
+    """#5: 서명된 LiveKit 웹훅의 참가·퇴장이 N-03 JOINED/END가 된다. 위조·남의 페어는 무시·거부."""
+    import base64, hashlib, json
+
+    from livekit import api as lk
+
+    monkeypatch.setenv("LIVEKIT_API_KEY", "devkey")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "devsecret-devsecret-devsecret-32b")
+
+    def hook(event, room, ident, secret="devsecret-devsecret-devsecret-32b"):
+        body = json.dumps({"event": event, "room": {"name": room}, "participant": {"identity": ident}})
+        sha = base64.b64encode(hashlib.sha256(body.encode()).digest()).decode()
+        jwt = lk.AccessToken("devkey", secret).with_sha256(sha).to_jwt()
+        return c.post("/v1/livekit/webhook", content=body, headers={"Authorization": jwt, "Content-Type": "application/webhook+json"})
+
+    c = _client()
+    P, C, pid = _pair(c)
+    cid = c.post("/v1/calls", headers=P).json()["data"]["call_id"]
+    c.post(f"/v1/calls/{cid}/accept", headers=C)
+
+    assert hook("participant_joined", cid, f"{pid}:PARENT", secret="wrong-secret-wrong-secret-wrong-32").status_code == 403
+    assert hook("participant_joined", cid, "stt-worker").json() == {"ignored": "unknown_participant"}
+    assert hook("participant_joined", cid, "pair-other:CHILD").json() == {"ignored": "unknown_participant"}
+    assert hook("participant_joined", cid, f"{pid}:PARENT").json()["outcome"] == "waiting"
+    assert hook("participant_joined", cid, f"{pid}:CHILD").json()["outcome"] == "active"
+    assert hook("participant_joined", cid, f"{pid}:CHILD").json()["outcome"] == "active"  # worker와 중복돼도 그대로
+    hook("participant_left", cid, f"{pid}:CHILD")
+    hook("participant_left", cid, f"{pid}:PARENT")  # 이미 끝난 통화: 이벤트 추가 없음
+
+    ev = [(e["type"], e["payload"].get("reason")) for e in c.get("/v1/dev/outbox").json()]
+    assert ev == [("call.invite", None), ("call.accepted", None), ("call.connected", None), ("call.ended", "RTC_FAILED")]

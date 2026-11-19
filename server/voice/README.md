@@ -53,10 +53,14 @@ curl -sS localhost:8000/v1/dev/outbox
 `GET /v1/calls/current`: 페어의 진행 중 통화(`call_id, call_state, caller_role, accepted, connected_roles`) 또는 `null`.
 앱(`android/child`)이 화면이 보이는 동안 1.5초마다 물어 수신·수락·상대 끊음을 안다. D의 `WS /v1/events`가 생기면 이벤트로 바꾼다.
 
+## 인증 (#10)
+
+`/v1/pairs/invite`·`/claim`에 토큰 없이 오면 서버가 새 기기 토큰을 응답의 `token`으로 준다. 이후 모든 요청은 `Authorization: Bearer <token>`. 페어·역할은 서버가 토큰에서 찾는다(`X-Actor-Id`/`X-Pair-Id`는 없어짐). `AUTH_OUT=파일 scripts/dev_call.sh`로 dev 토큰을 파일에 받을 수 있다.
+
 ## 텍스트 입력 스텁 (C·D용)
 
 ```bash
-curl -X POST localhost:8000/v1/dev/speech-final -H 'X-Pair-Id: <pair_id>' -H 'Content-Type: application/json' \
+curl -X POST localhost:8000/v1/dev/speech-final -H 'Authorization: Bearer <기기 토큰>' -H 'Content-Type: application/json' \
   -d '{"call_id":"<call_id>","speaker_role":"CHILD","text":"디스플레이 눌러 줘"}'
 curl localhost:8000/v1/dev/outbox      # 발행된 이벤트 (source=manual_test)
 ```
@@ -65,7 +69,6 @@ curl localhost:8000/v1/dev/outbox      # 발행된 이벤트 (source=manual_test
 
 - LiveKit 웹훅: 참가 콜백은 `/v1/dev/calls/{id}/joined`로 대신. (`rtc-token`은 구현됨. `.env`에 LiveKit 키가 없으면 503)
 - STT worker(LiveKit Agents, 트랙별 스트림)와 RTZR(`sommers_ko`) 어댑터: 키 받은 뒤 `SttEvent`를 만들어 `transcribe_korean_turn`에 넘기면 된다.
-- 실제 인증: 지금은 `X-Actor-Id`/`X-Pair-Id` 헤더를 그대로 믿는다(dev 전용).
 - D로 보내는 WS: D의 `WS /v1/events`가 생기면 `app._publish`만 바꾼다.
 - Android `rtc`/`child`: 이슈 #1 골격 PR(`com.hyojason.app`, SDK 35, `android/contract`) 이후 시작.
 

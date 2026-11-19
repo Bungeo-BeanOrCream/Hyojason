@@ -20,15 +20,14 @@ import kotlinx.coroutines.withContext
 /**
  * AVD 통화 검증용 임시 화면(debug 전용). 두 방법으로 연다.
  *  - 1단계 meet 링크 그대로: `-d '<링크>'` (쿼리의 liveKitUrl·token 사용)
- *  - 서버에서 토큰 받기: `--es server http://10.0.2.2:8000 --es actor <id> --es pair <pair_id> --es call <call_id>`
+ *  - 서버에서 토큰 받기: `--es server http://10.0.2.2:8000 --es auth <기기 토큰> --es call <call_id>`
  *    (끊기가 서버에 HANGUP으로 남는 건 이 방법뿐. 링크로 열면 call 정보가 없어 방만 나간다 → RTC_FAILED)
  */
 class RtcTestActivity : Activity() {
     private val scope: CoroutineScope = MainScope()
     private lateinit var statusView: TextView
     private var server: String? = null
-    private var actor: String? = null
-    private var pair: String? = null
+    private var auth: String? = null
     private var call: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,20 +69,18 @@ class RtcTestActivity : Activity() {
         if (url != null && token != null) return CallService.start(this, url, token)
 
         server = intent.getStringExtra("server")
-        actor = intent.getStringExtra("actor")
-        pair = intent.getStringExtra("pair")
+        auth = intent.getStringExtra("auth")
         call = intent.getStringExtra("call")
         val server = server
-        val actor = actor
-        val pair = pair
+        val auth = auth
         val call = call
-        if (server == null || actor == null || pair == null || call == null) {
-            statusView.text = "링크(-d) 또는 server/actor/pair/call 값이 필요해요"
+        if (server == null || auth == null || call == null) {
+            statusView.text = "링크(-d) 또는 server/auth/call 값이 필요해요"
             return
         }
         scope.launch {
             try {
-                val t = withContext(Dispatchers.IO) { fetchRtcToken(server, actor, pair, call) }
+                val t = withContext(Dispatchers.IO) { fetchRtcToken(server, auth, call) }
                 CallService.start(this@RtcTestActivity, t.url, t.token)
             } catch (e: Exception) {
                 statusView.text = "토큰 발급 실패: ${e.message}"
@@ -93,10 +90,10 @@ class RtcTestActivity : Activity() {
 
     /** 서버에 먼저 종료를 알리고(HANGUP) 방을 나간다. 서버가 안 받아도 방은 나간다 → 서버는 RTC_FAILED로 끝낸다. */
     private fun hangUp() {
-        val (s, a, p, c) = listOf(server, actor, pair, call)
-        if (s == null || a == null || p == null || c == null) return CallService.stop(this)
+        val (s, a, c) = listOf(server, auth, call)
+        if (s == null || a == null || c == null) return CallService.stop(this)
         scope.launch {
-            runCatching { withContext(Dispatchers.IO) { endCall(s, a, p, c) } }
+            runCatching { withContext(Dispatchers.IO) { endCall(s, a, c) } }
                 .onFailure { statusView.text = "서버 종료 알림 실패: ${it.message}" }
             CallService.stop(this@RtcTestActivity)
         }
