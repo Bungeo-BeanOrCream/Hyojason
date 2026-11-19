@@ -32,7 +32,9 @@ import com.hyojason.app.observer.detection.DemoProfiles
 import com.hyojason.app.observer.detection.DetectionProfile
 import com.hyojason.app.observer.detection.FeatureKey
 import com.hyojason.app.observer.detection.FeatureKind
+import com.hyojason.app.observer.detection.DetectionInput
 import com.hyojason.app.observer.detection.FeatureScan
+import com.hyojason.app.observer.detection.FrameFeature
 import com.hyojason.app.observer.detection.FrameSafety
 import com.hyojason.app.observer.detection.KoreanTextScan
 import com.hyojason.app.observer.detection.ProfileScreen
@@ -127,7 +129,24 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             "google.translate" to TargetRule(setOf(text("텍스트 번역"))),
             "google.saved" to TargetRule(setOf(text("저장됨"))),
         ))
-        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"), screens + google)
+        // EXPERIMENT (#37): Pixel Clock (Korean). Tabs share the same bottom labels, so the tab is told
+        // apart on the device from where "알람" appears (see clockFeatures) and reported as an ICON key.
+        fun icon(value: String) = FeatureKey(FeatureKind.ICON, value)
+        val nav = mapOf("${PROBE}clock.timer" to TargetRule(setOf(text("타이머"))),
+            "${PROBE}clock.stopwatch" to TargetRule(setOf(text("스톱워치"))))
+        val clockOther = ProfileScreen("clock_other_tab", listOf(setOf(icon("clock_other_tab"))),
+            mapOf("clock.alarm_tab" to TargetRule(setOf(text("알람")))) + nav)
+        val cards = ALARM_TIMES.associate { time ->
+            "${PROBE}alarm.$time" to TargetRule(setOf(text(alarmLabel(time))), topmostOfDuplicates = true) }
+        val clockAlarms = ProfileScreen("clock_alarm_list", listOf(setOf(icon("clock_alarm_list"))),
+            mapOf("clock.add_alarm" to TargetRule(setOf(icon("add_alarm")))) + nav + cards)
+        val dial = (1..12).associate { "${PROBE}dial.$it" to TargetRule(setOf(text("$it"))) } +
+            (1..12).associate { "${PROBE}hour.%02d".format(it) to TargetRule(setOf(text("%02d".format(it))),
+                topmostOfDuplicates = true) }
+        val picker = ProfileScreen("clock_alarm_edit", listOf(setOf(text("시간 선택"), text("확인"))),
+            mapOf("clock.save_alarm" to TargetRule(setOf(text("확인")))) + dial)
+        DetectionProfile("settings-ko-api35", 1, ProfileVersion("15", "sdk_gphone64_arm64"),
+            screens + google + clockOther + clockAlarms + picker)
     }
     private val deviceProfileVersion by lazy {
         if (Build.VERSION.SDK_INT != 35 || Locale.getDefault().language != "ko") null
@@ -482,8 +501,34 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                 val done = ready.await(1_200, TimeUnit.MILLISECONDS)
                 // #32: OCR latency only. No recognized text, rects or pixels.
                 Log.i(OCR_LOG, "scan_ms=${SystemClock.elapsedRealtime() - started} timed_out=${!done}")
-                if (done) listOf(features) else emptyList()
+                if (done) listOf(features) + clockFeatures(features, input) else emptyList()
             }, previousScreenRevision = lastScreenRevision, reuseIdenticalScans = true)
+
+    /**
+     * EXPERIMENT (#37): Pixel Clock tabs share the bottom labels, so tell them apart by where "알람" is:
+     * at the top it is the alarm tab's title. On the alarm tab the "알람 추가" button has no text but sits
+     * at a fixed place above the bottom labels; report it as an ICON key there. Device-local, no pixels.
+     */
+    private fun clockFeatures(scan: FeatureScan, input: DetectionInput): List<FeatureScan> {
+        if (!scan.succeeded) return emptyList()
+        fun find(value: String) = scan.features.filter { it.key.kind == FeatureKind.TEXT && it.key.value == value }
+        val timer = find("타이머").maxByOrNull { it.rect.top } ?: return emptyList()
+        if (find("스톱워치").isEmpty()) return emptyList()
+        val height = input.local_frame.viewport?.bottom ?: return emptyList()
+        val title = find("알람").minByOrNull { it.rect.top }
+        val alarmTab = title != null && title.rect.top < height / 5
+        val density = activity.resources.displayMetrics.density
+        fun px(dp: Int) = (dp * density + 0.5f).toInt()
+        val out = mutableListOf(FrameFeature(FeatureKey(FeatureKind.ICON,
+            if (alarmTab) "clock_alarm_list" else "clock_other_tab"), timer.rect))
+        if (alarmTab) {
+            val center = (timer.rect.left + timer.rect.right) / 2
+            val bottom = timer.rect.top - px(65)
+            if (bottom - px(96) > 0) out += FrameFeature(FeatureKey(FeatureKind.ICON, "add_alarm"),
+                LocalRect(center - px(48), bottom - px(96), center + px(48), bottom))
+        }
+        return listOf(FeatureScan(FeatureKind.ICON, true, out))
+    }
 
     private suspend fun readFrame() {
         val source = frames ?: return
@@ -511,6 +556,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             val previous = published
             val codes = screen.evidence_codes.toMutableList()
             codes += belowFoldEvidence(screen.screen_kind, screen.target_ids)
+            codes += alarmEvidence(screen.screen_kind, screen.target_ids)
             if (observation.fromScreenRevision != null) codes += "stable_screen_transition"
             val body = JSONObject().put("projection_epoch", source.epoch)
                 .put("screen_revision", screen.screen_revision).put("screen_kind", screen.screen_kind)
@@ -634,6 +680,21 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             }
             return
         }
+        if (observation.screen.screen_kind == "clock_alarm_edit" && next.action == GuideAction.TAP) {
+            val (text, rect) = pickerStep(observation) ?: return clearOverlay("picker_unknown")
+            val key = "$offerId|$text|$rect"
+            if (pickerKey == key) return
+            host.clear()
+            if (host.showBorder(rect) && host.showBanner(text)) {
+                pickerKey = key
+                displayed = next
+                renderBasis = basis
+                renderOfferId = offerId
+                Log.i(NOTICE_LOG, "picker_step")
+                send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
+            }
+            return
+        }
         if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
@@ -666,6 +727,17 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
      * rect up over the icon and out to the icon width so the red border frames the whole app.
      */
     private fun withAppIcons(observation: LocalObservation): LocalObservation {
+        if (observation.screen.screen_kind == "clock_other_tab") {
+            val density = activity.resources.displayMetrics.density
+            fun px(dp: Int) = (dp * density + 0.5f).toInt()
+            return observation.copy(targets = observation.targets.map { target ->
+                if (target.target_id != "clock.alarm_tab") return@map target
+                val r = target.rect
+                val center = (r.left + r.right) / 2
+                target.copy(rect = LocalRect((center - px(44)).coerceAtLeast(0), (r.top - px(44)).coerceAtLeast(0),
+                    center + px(44), r.bottom + px(6)))
+            })
+        }
         if (observation.screen.screen_kind != "home") return observation
         val density = activity.resources.displayMetrics.density
         val screenWidth = activity.resources.displayMetrics.widthPixels
@@ -678,6 +750,38 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             target.copy(rect = LocalRect((center - half).coerceAtLeast(0), (r.top - px(88)).coerceAtLeast(0),
                 (center + half).coerceAtMost(screenWidth), r.bottom + px(6)))
         })
+    }
+
+    private fun goalSlots(): JSONObject? = goalContext?.optJSONObject("approved_slots")
+
+    /** EXPERIMENT (#37): the approved alarm's card on the alarm list is the arrival evidence. */
+    private fun alarmEvidence(kind: String, ids: Set<String>): List<String> {
+        if (kind != "clock_alarm_list" || goalContext?.optString("goal_id") != "CLOCK_ALARM") return emptyList()
+        val slots = goalSlots() ?: return emptyList()
+        val time = slots.optString("time"); val day = slots.optString("day")
+        return if ("${PROBE}alarm.$time" in ids && day.isNotEmpty()) listOf("alarm_card_active", "alarm_next:$day:$time")
+        else emptyList()
+    }
+
+    /** EXPERIMENT (#37): on the time picker first point at the hour on the dial, then at "확인". */
+    private fun pickerStep(observation: LocalObservation): Pair<String, LocalRect>? {
+        val time = goalSlots()?.optString("time")?.takeIf { it.length == 5 } ?: return null
+        val hour24 = time.substring(0, 2).toIntOrNull() ?: return null
+        val hour = (hour24 % 12).let { if (it == 0) 12 else it }
+        val period = if (hour24 < 12) "오전" else "오후"
+        val minute = time.substring(3)
+        val targets = observation.targets.associateBy { it.target_id }
+        return if ("${PROBE}hour.%02d".format(hour) !in targets) {
+            targets["${PROBE}dial.$hour"]?.let { "‘$hour’을 눌러 주세요" to pad(it.rect, 18) }
+        } else {
+            val minuteText = if (minute == "00") "" else " 분은 ‘$minute’,"
+            targets["clock.save_alarm"]?.let { "$minuteText ‘$period’를 고른 뒤 ‘확인’을 눌러 주세요".trim() to pad(it.rect, 6) }
+        }
+    }
+
+    private fun pad(rect: LocalRect, dp: Int): LocalRect {
+        val px = (dp * activity.resources.displayMetrics.density + 0.5f).toInt()
+        return LocalRect((rect.left - px).coerceAtLeast(0), (rect.top - px).coerceAtLeast(0), rect.right + px, rect.bottom + px)
     }
 
     /** EXPERIMENT: per-2s counts of loop outcomes (no frame / no stabilization / processed). */
@@ -750,7 +854,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             .put("target_ids", JSONArray()).put("evidence_codes", JSONArray()))
     }
 
+    private var pickerKey: String? = null
+
     private fun clearOverlay(reason: String = "render") {
+        pickerKey = null
         clearSettingsNotice(reason)
         if (displayed != null) host.clear()
         displayed = null
@@ -798,6 +905,12 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         private const val PROBE = "probe."
         private const val HOME_SWIPE_UP = "위로 쓸어 올려 앱 목록을 열어 주세요"
         private const val HOME_GO = "화면 맨 아래를 위로 밀어 홈으로 가 주세요"
+        private val ALARM_TIMES = (0..23).flatMap { h -> listOf("%02d:00".format(h), "%02d:30".format(h)) }
+        private fun alarmLabel(time: String): String {
+            val hour24 = time.substring(0, 2).toInt()
+            val hour = (hour24 % 12).let { if (it == 0) 12 else it }
+            return "${if (hour24 < 12) "오전" else "오후"} $hour:${time.substring(3)}"
+        }
         private val LAUNCHER_APPS = listOf(
             "launcher.settings", "launcher.clock", "launcher.maps", "launcher.sms", "launcher.gmail")
         private const val PROBE_ABOVE = "probe.above#"
