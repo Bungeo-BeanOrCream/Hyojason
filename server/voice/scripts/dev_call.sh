@@ -39,7 +39,7 @@ TPJ=$(step token-parent -XPOST "$B/v1/calls/$CID/rtc-token" "${P[@]}")
 TCJ=$(step token-child -XPOST "$B/v1/calls/$CID/rtc-token" "${C[@]}")
 URL=$(get '["url"]' <<<"$TPJ")
 
-echo "CID=$CID  PID=$PID"
+echo "CID=$CID  PID=$PID  PARENT=P$A  CHILD=C$A"
 echo "부모: https://meet.livekit.io/custom?liveKitUrl=$URL&token=$(get '["token"]' <<<"$TPJ")"
 echo "자녀: https://meet.livekit.io/custom?liveKitUrl=$URL&token=$(get '["token"]' <<<"$TCJ")"
 ACT=com.hyojason.app/com.hyojason.app.rtc.debug.RtcTestActivity
