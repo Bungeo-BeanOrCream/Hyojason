@@ -1,0 +1,72 @@
+[
+  {"id": "GC01", "note": "문자 → 메일로 목적 변경", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "얘야 문자 보내는 거 좀 알려줘"},
+    {"role": "CHILD", "text": "시연 상대한테 시연 문구 보내는 거요?"},
+    {"role": "PARENT", "text": "아니 문자 말고 그 메일 말이야"},
+    {"role": "CHILD", "text": "아 받은편지함에서 시연 메일 여는 거요?"}],
+   "expected_goals": ["SMS_SEND", "SMS_SEND", "MAIL_OPEN", "MAIL_OPEN"],
+   "expected_final": {"goal_id": "MAIL_OPEN", "approved_slots": {"mail_id": "demo-mail"}}},
+  {"id": "GC02", "note": "알람 → 글자 크기로 목적 변경", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "내일 아침 여섯 시에 알람 맞추고 싶은데"},
+    {"role": "CHILD", "text": "네 시계 앱부터 열어 보세요"},
+    {"role": "PARENT", "text": "근데 그보다 글씨가 너무 작아서 하나도 안 보여"},
+    {"role": "CHILD", "text": "그럼 글자를 한 단계 키워 드릴게요"}],
+   "expected_goals": ["CLOCK_ALARM", "CLOCK_ALARM", "SET_FONT", "SET_FONT"],
+   "expected_final": {"goal_id": "SET_FONT", "approved_slots": {"steps": 1}}},
+  {"id": "GC03", "note": "목표 뒤 잡담에도 유지", "assisted_role": "PARENT", "turns": [
+    {"role": "CHILD", "text": "엄마 내일 오전 6시로 알람 맞추자"},
+    {"role": "PARENT", "text": "그래 고마워"},
+    {"role": "CHILD", "text": "오늘 저녁은 드셨어요?"},
+    {"role": "PARENT", "text": "응 먹었지"}],
+   "expected_goals": ["CLOCK_ALARM", "CLOCK_ALARM", "CLOCK_ALARM", "CLOCK_ALARM"],
+   "expected_final": {"goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "06:00"}}},
+  {"id": "GC04", "note": "지원 목표 없는 안부 통화", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "여보세요 잘 들리니?"},
+    {"role": "CHILD", "text": "네 잘 들려요"},
+    {"role": "PARENT", "text": "오늘 날씨가 많이 춥다"}],
+   "expected_goals": [null, null, null],
+   "expected_final": null},
+  {"id": "GC05", "note": "필수 슬롯 누락 뒤 보충", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "알람 하나 맞춰 줘"},
+    {"role": "CHILD", "text": "몇 시로 맞춰 드릴까요?"},
+    {"role": "PARENT", "text": "내일 저녁 여섯 시로"}],
+   "expected_goals": [null, null, "CLOCK_ALARM"],
+   "expected_final": {"goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "18:00"}}},
+  {"id": "GC06", "note": "증상 설명 뒤 화면 꺼짐 시간", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "화면이 자꾸 금방 꺼져서 불편해"},
+    {"role": "CHILD", "text": "화면 꺼지는 시간을 십 분으로 늘려 드릴게요"}],
+   "expected_goals": [null, "SET_TIMEOUT"],
+   "expected_final": {"goal_id": "SET_TIMEOUT", "approved_slots": {"duration_minutes": 10}}},
+  {"id": "GC07", "note": "길찾기 목적지", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "서울역 가는 길을 좀 보려고 하는데"},
+    {"role": "CHILD", "text": "지도에서 길찾기 열어 볼게요"}],
+   "expected_goals": ["MAP_ROUTE", "MAP_ROUTE"],
+   "expected_final": {"goal_id": "MAP_ROUTE", "approved_slots": {"place": "demo-seoul-station"}}},
+  {"id": "GC08", "note": "부모가 자녀를 돕는 도움", "assisted_role": "CHILD", "turns": [
+    {"role": "CHILD", "text": "아빠 메일 여는 법 좀 알려줘"},
+    {"role": "PARENT", "text": "받은편지함에서 시연 메일을 눌러 봐"}],
+   "expected_goals": ["MAIL_OPEN", "MAIL_OPEN"],
+   "expected_final": {"goal_id": "MAIL_OPEN", "approved_slots": {"mail_id": "demo-mail"}}},
+  {"id": "GC09", "note": "미지원 요청", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "사진 공유하는 거 좀 알려줘"},
+    {"role": "CHILD", "text": "사진 앱을 먼저 열어 보세요"}],
+   "expected_goals": [null, null],
+   "expected_final": null},
+  {"id": "GC10", "note": "위험 요청은 목표로 만들지 않음", "assisted_role": "PARENT", "turns": [
+    {"role": "CHILD", "text": "휴대폰 공장 초기화하자"},
+    {"role": "PARENT", "text": "그건 하면 안 되는 거 아니니"}],
+   "expected_goals": [null, null],
+   "expected_final": null},
+  {"id": "GC11", "note": "확인 질문 뒤 같은 목표 유지", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "문자를 하나 보내야 하는데"},
+    {"role": "CHILD", "text": "시연 상대한테요?"},
+    {"role": "PARENT", "text": "응 그 시연 문구 보내는 거"}],
+   "expected_goals": ["SMS_SEND", "SMS_SEND", "SMS_SEND"],
+   "expected_final": {"goal_id": "SMS_SEND", "approved_slots": {"recipient_id": "demo-recipient", "message_id": "demo-sms"}}},
+  {"id": "GC12", "note": "메일 → 알람으로 목적 변경", "assisted_role": "PARENT", "turns": [
+    {"role": "PARENT", "text": "메일 좀 열어 보려고"},
+    {"role": "CHILD", "text": "시연 메일이요?"},
+    {"role": "PARENT", "text": "아 그거 말고 내일 아침 일곱 시 반에 알람 맞추는 거"}],
+   "expected_goals": ["MAIL_OPEN", "MAIL_OPEN", "CLOCK_ALARM"],
+   "expected_final": {"goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "07:30"}}}
+]
