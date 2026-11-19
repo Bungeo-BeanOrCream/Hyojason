@@ -199,6 +199,21 @@ class NodeRun:
             diagnostics=self._diagnostic(basis, input_refs, None),
         )
 
+    def partial(
+        self,
+        outcome: str,
+        data: T,
+        basis: Basis,
+        input_refs: Iterable[ResultRef] = (),
+    ) -> NodeResult[T]:
+        """일부 경로만 실패. 실패한 단계는 steps에만 남기고 terminal_error는 비운다."""
+        return NodeResult(
+            status=Status.PARTIAL,
+            outcome=outcome,
+            data=data,
+            diagnostics=self._diagnostic(basis, input_refs, None),
+        )
+
     def error(
         self,
         code: ErrorCode,
