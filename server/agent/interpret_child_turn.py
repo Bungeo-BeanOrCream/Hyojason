@@ -316,9 +316,16 @@ def goal_slots(goal_id: str, texts: list[str]) -> dict[str, JsonValue] | None:
             return {"duration_minutes": 10}
         return None
     if goal_id == "CLOCK_ALARM":
-        time = next(filter(None, map(_alarm_time, newest_first)), None)
-        day = next(filter(None, map(_alarm_day, newest_first)), None)
-        return {"day": day, "time": time} if time and day else None
+        # 날짜는 시각이 나온 같은 발화에서 먼저 찾는다. 없을 때만 알람을 말한 발화에서 찾는다.
+        # 잡담의 "오늘"("오늘 저녁은 드셨어요?")이 알람 날짜를 바꾸지 않게 한다.
+        spoken = next(((text, time) for text in newest_first if (time := _alarm_time(text))), None)
+        if spoken is None:
+            return None
+        text, time = spoken
+        day = _alarm_day(text) or next(
+            (day for other in newest_first if "알람" in other and (day := _alarm_day(other))), None
+        )
+        return {"day": day, "time": time} if day else None
     return None
 
 

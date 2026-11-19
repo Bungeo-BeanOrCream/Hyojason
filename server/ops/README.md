@@ -19,6 +19,18 @@ python3.11 -m server.ops.runtime_smoke \
 
 증거 JSON에는 `observed_runs` 배열로 `V08-GOAL`, `V08-TARGET_LOCATION`, `V08-ACTION_MATCH`, `V08-NEXT_ACTION`, `V08-ARRIVAL`, `V08-budget` 기록이 들어간다. D의 평가기는 누적 차감액을 `credits_cents` 필드로 읽는다. D 브랜치에서는 `demo_verify evaluate <fixtures-dir> <evidence-file> --source LIVE`로 읽을 수 있다. 리허설 결과와 합칠 때 각 케이스의 첫 시도를 보존한다.
 
+## V-05 대화형 목표 평가
+
+[대화형 목표 표본](../../demo/fixtures/goal_conversations.json) 12개를 N-15에 발화 순서대로 넣는다. 세션 서버와 같은 방식으로 최근 확정 발화 창, 직전 GoalBelief, 현재 목표를 다음 발화에 넘긴다. 대화 중 목표 변경, 잡담 뒤 유지, 목표 없음, 슬롯 보충, 자녀가 지원 대상인 도움, 미지원·위험 요청을 포함한다. 위 실모델 확인과 같은 환경 변수와 비용 기준을 쓴다. 누적 $70 이상이면 요청을 보내지 않고 종료 코드 2를 반환한다.
+
+~~~sh
+python3.11 -m server.ops.goal_conversation_eval \
+  --spend-cents "$HYOJASON_SPEND_CENTS" \
+  --evidence-json /tmp/hyojason-v05-goal.json
+~~~
+
+결과에는 케이스·발화 순번·화자·모델 선택·확률·지연·출처와 그 발화 뒤 목표만 남고 발화 원문은 남지 않는다. 요약은 최종 목표 일치 수, 발화별 목표 일치 수, GOAL 호출 수, `TIMEOUT`·오류 수, 지연 p50/p95, `failed_cases`다. 실행 전후 크레딧 차감액을 함께 기록한다.
+
 ## 회귀 검증
 
 ~~~sh

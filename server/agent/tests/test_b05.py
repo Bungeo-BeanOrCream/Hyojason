@@ -542,3 +542,12 @@ class GoalSlotContractTests(TestCase):
         self.assertEqual(required_arrival_evidence(goal("MAIL_OPEN", {"mail_id": "demo-mail"})), ("mail_detail_open",))
         self.assertEqual(required_arrival_evidence(goal("SET_FONT", {})), ("font_scale_changed",))
         self.assertEqual(required_arrival_evidence(goal("MAP_ROUTE", {"place": "demo_place"})), ())
+
+    def test_alarm_day_comes_from_the_time_utterance_not_small_talk(self):
+        from server.agent.interpret_child_turn import goal_slots
+
+        talk = ["엄마 내일 오전 6시로 알람 맞추자", "그래 고마워", "오늘 저녁은 드셨어요?"]
+        self.assertEqual(goal_slots("CLOCK_ALARM", talk), {"day": "tomorrow", "time": "06:00"})
+        split = ["내일 알람 하나 맞춰 줘", "오전 6시로"]
+        self.assertEqual(goal_slots("CLOCK_ALARM", split), {"day": "tomorrow", "time": "06:00"})
+        self.assertIsNone(goal_slots("CLOCK_ALARM", ["오늘 저녁은 드셨어요?", "오전 6시로"]))
