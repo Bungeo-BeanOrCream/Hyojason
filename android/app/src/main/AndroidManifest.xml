@@ -1,3 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:label="Hyojason" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <queries><package android:name="com.android.settings" /></queries>
+    <application android:label="Hyojason">
+        <activity android:name=".MvpActivity" android:exported="true" android:label="효자손"
+            android:launchMode="singleTask" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
 </manifest>

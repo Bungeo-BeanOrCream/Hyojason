@@ -28,6 +28,27 @@ internal class AndroidProjectionDevice(
     private var contentVisible = true
     private var closed = false
     private var lastFrameMs = -250L
+    private val refreshIdleCapture = object : Runnable {
+        override fun run() {
+            try {
+                synchronized(readerLock) {
+                    if (closed) return
+                    val surface = reader?.surface
+                    val display = virtualDisplay
+                    if (contentVisible && surface != null && display != null &&
+                        SystemClock.elapsedRealtime() - lastFrameMs >= 350L) {
+                        // Static UI can stop producing buffers. Refresh the same approved display
+                        // so the safety gate can verify a fresh frame instead of reusing stale pixels.
+                        display.surface = null
+                        display.surface = surface
+                    }
+                }
+                imageHandler.postDelayed(this, 220L)
+            } catch (_: RuntimeException) {
+                callbacks.post(onSystemStop)
+            }
+        }
+    }
     private val callback = object : MediaProjection.Callback() {
         override fun onStop() = onSystemStop()
 
@@ -59,6 +80,7 @@ internal class AndroidProjectionDevice(
                 "Hyojason parent screen", width, height, densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, initial.surface, null, callbacks,
             ))
+            imageHandler.postDelayed(refreshIdleCapture, 220L)
         } catch (failure: RuntimeException) {
             close()
             throw failure
@@ -125,6 +147,7 @@ internal class AndroidProjectionDevice(
     override fun close() {
         if (closed) return
         closed = true
+        imageHandler.removeCallbacks(refreshIdleCapture)
         projection.unregisterCallback(callback)
         synchronized(readerLock) {
             virtualDisplay?.release()

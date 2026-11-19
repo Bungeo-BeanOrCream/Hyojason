@@ -74,10 +74,12 @@ def _fail(code: ErrorCode):
 _sink: Callable[[str, Event], None] = lambda trace_id, event: OUTBOX.append((trace_id, event))
 
 
-def set_event_sink(fn: Callable[[str, Event], None]) -> None:
-    """B가 내는 이벤트(call.invite/accepted/connected/ended, speech.final)를 받을 곳. 동기 함수, (trace_id, Event)."""
+def set_event_sink(fn: Callable[[str, Event], None]) -> Callable[[str, Event], None]:
+    """B 이벤트의 수신 함수를 연결하고 런타임 종료 시 복원할 기존 함수를 반환한다."""
     global _sink
+    previous = _sink
     _sink = fn
+    return previous
 
 
 def _publish(event: Event, trace_id: str) -> None:
@@ -145,10 +147,15 @@ def unpair(who: ActorContext) -> None:
     두 기기 모두 다음 요청부터 UNAUTHORIZED → 앱은 연결 화면으로 돌아간다. 다시 쓰려면 새 코드로 연결."""
     if cid := calls.active_by_pair.get(who.pair_id):
         call_op(Operation.END, who, cid)
-    pairs.members.pop(who.pair_id, None)
-    pairs.invites = {c: i for c, i in pairs.invites.items() if i.pair_id != who.pair_id}
-    consents.pop(who.pair_id, None)
+    retire_pair(who.pair_id)
     log.info("페어 해제 %s (by %s)", who.pair_id, who.role.value)
+
+
+def retire_pair(pair_id: str) -> None:
+    """종료된 페어의 인증 범위, 초대와 동의를 한 곳에서 정리한다."""
+    pairs.members.pop(pair_id, None)
+    pairs.invites = {code: invite for code, invite in pairs.invites.items() if invite.pair_id != pair_id}
+    consents.pop(pair_id, None)
 
 
 # ---- N-02 ----
@@ -160,6 +167,11 @@ def _consent(pair_id: str) -> ConsentState:
 
 def get_consent(who: ActorContext) -> ConsentView:
     return _consent(who.pair_id).view()
+
+
+def consenting_roles(pair_id: str) -> frozenset[Role]:
+    state = consents.get(pair_id)
+    return frozenset(role for role, enabled in state.enabled.items() if enabled) if state else frozenset()
 
 
 def set_consent(
@@ -206,7 +218,8 @@ def _close_room(call_id: str) -> None:
 
 
 def call_op(
-    op: Operation, who: ActorContext, call_id: str | None = None, reason: CallEndReason = CallEndReason.HANGUP
+    op: Operation, who: ActorContext, call_id: str | None = None, reason: CallEndReason = CallEndReason.HANGUP,
+    *, assisted_role: Role = Role.PARENT,
 ) -> NodeResult:
     """N-03 한 번 + 그에 따른 이벤트 발행·worker 시작. START(발신)·ACCEPT·JOINED·END. 라우트와 worker 콜백이 같이 쓴다."""
     for c in calls.expire():  # 수락·참가 시간 초과
@@ -220,7 +233,9 @@ def call_op(
         return result
     v, tid = result.data, result.diagnostics.trace_id
     if op is Operation.START:
-        _publish(call_event("call.invite", who.pair_id, v.call_id, who.role), tid)
+        event = call_event("call.invite", who.pair_id, v.call_id, who.role)
+        event.payload["assisted_role"] = assisted_role.value
+        _publish(event, tid)
     elif op is Operation.ACCEPT:
         _publish(call_event("call.accepted", who.pair_id, v.call_id, who.role), tid)
         _start_worker(calls.get(v.call_id))

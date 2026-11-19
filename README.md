@@ -160,4 +160,4 @@ python3 -m hyojason_session.demo_verify evaluate ../../demo/fixtures ../../demo/
 
 **3. 실제 통합 리허설을 준비합니다.** 두 AVD에 같은 빌드를 설치하고 한 대씩 역할을 선택합니다. 팀 개발 환경의 LiveKit·STT, FastAPI 제어 서버, Zoro-1 런타임을 준비합니다. `main`의 제어 서버는 현재 페어·통화에 모의 경로를 사용하므로 실제 통화는 통합 빌드에서 확인합니다. 순서와 담당 경계는 [세션 서버 실행](server/session/README.md) · [통화 구현](https://github.com/Bungeo-BeanOrCream/Hyojason/tree/B/server/voice) · [모델 준비 및 실행](server/ops/README.md) · [두 AVD 리허설](demo/fixtures/README.md#두-avd에서-준비-상태-확인)에서 확인할 수 있습니다.
 
-[개발 문서](docs/README.md) · [전체 구조](docs/architecture.md) · [지원 목표와 시연](docs/scenarios.md) · [검증 계획](docs/verification-plan.md)
+[통합 MVP 실행](server/README.md) · [개발 문서](docs/README.md) · [전체 구조](docs/architecture.md) · [지원 목표와 시연](docs/scenarios.md) · [검증 계획](docs/verification-plan.md)

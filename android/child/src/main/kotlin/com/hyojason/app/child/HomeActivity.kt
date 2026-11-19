@@ -25,7 +25,7 @@ import kotlinx.coroutines.launch
  * ponytail: 폴링. D의 WS /v1/events가 생기면 [poll]만 이벤트 수신으로 바꾼다.
  * 이번 범위 밖: 안내 끄기(help.stop, D)·안내 표시(A)·도움받는 사람 변경(#6 결정 대기).
  */
-class HomeActivity : Activity() {
+open class HomeActivity : Activity() {
     private val scope = MainScope()
     private lateinit var store: Store
     private lateinit var api: Api
@@ -42,6 +42,7 @@ class HomeActivity : Activity() {
     private var pendingAfterMic: (() -> Unit)? = null
     private var pollJob: Job? = null
     private var tickJob: Job? = null
+    private var assistedRole = Role.PARENT
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,8 +135,11 @@ class HomeActivity : Activity() {
             Screen.INCOMING -> drawIncoming()
             Screen.IN_CALL -> drawInCall()
         }
+        drawAssistanceControls(root, store.paired, screen == Screen.IN_CALL)
         message?.let { root.body(it, 16f, Palette.RED) }
     }
+
+    protected open fun drawAssistanceControls(root: LinearLayout, paired: Boolean, inCall: Boolean) = Unit
 
     private fun say(text: String?) {
         message = text
@@ -244,8 +248,12 @@ class HomeActivity : Activity() {
             chip("연결됨")
         }
         root.card {
-            body("도움받는 사람 · 부모님", 18f, Palette.INK)
-            body("부모님 화면에서 누를 곳을 짚어 드려요.", 15f)
+            body("도움받는 사람", 18f, Palette.INK)
+            toggle("부모님", "자녀", assistedRole == Role.PARENT) { parent ->
+                assistedRole = if (parent) Role.PARENT else Role.CHILD
+                redraw()
+            }
+            body("선택한 사람의 화면에서 누를 곳을 짚어 드려요.", 15f)
         }
         root.card {
             body("AI 안내 · ${when (consentOn) { true -> "켜짐"; false -> "꺼짐 (전화만)"; null -> "확인 중" }}", 18f, Palette.INK)
@@ -277,7 +285,7 @@ class HomeActivity : Activity() {
     }
 
     private fun dial() = scope.launch {
-        api.startCall()
+        api.startCall(assistedRole)
             .onSuccess { cid -> current = CurrentCall(cid, store.role, false); message = null; render(Screen.OUTGOING) }
             .onFailure { say(if (it.message == "DUPLICATE") "이미 진행 중인 전화가 있어요" else "전화를 걸지 못했어요 (${it.message})") }
     }
