@@ -1,4 +1,4 @@
-현재 담당: Claude Code (2026-11-19) · D 슬롯 — N-22·N-23. N-11·N-12는 같은 날 D 브랜치의 병행 작업(커밋 902c36f~83c0187)
+현재 담당: Codex (2026-11-19) · D 슬롯 N-24·N-25. 같은 날 Claude Code가 N-22·N-23을 구현했다. N-11·N-12 변경은 커밋 902c36f~83c0187에 있다.
 
 # D 작업 상태 (B-04 · B-07 · B-08 통합)
 
@@ -13,7 +13,8 @@
 | [N-22 resolve_arrival_or_completion](../small-nodes/N-22.md) | 서버 로직, FIXTURE 테스트 통과. **SessionControl(N-11) 연동 전**, 실기기 UNVERIFIED | `tests/test_n22_resolve_arrival_or_completion.py` (22.1~22.5 + 완료 기준, 동시 종료) |
 | [N-23 purge_help_and_restart](../small-nodes/N-23.md) | 서버 로직 + 클라이언트 참조 구현, FIXTURE 테스트 통과. **SessionControl(N-11) 연동 전**, 실기기 UNVERIFIED | `tests/test_n23_purge_help_and_restart.py` (23.1~23.5 + 완료 기준) |
 | B-07 흐름 (N-21→N-22→N-23→N-13) | 격리 Mock(InMemoryHelpStore) 위 테스트 배선으로 확인. Big Node 오케스트레이션 코드는 아직 없음 | `tests/test_b07_integration.py` (B07.1~B07.4) |
-| N-24, N-25 | 시작 전 | — |
+| [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현. FIXTURE 검증 | `tests/test_n24_prepare_demo_fixtures.py` |
+| [N-25 evaluate_end_to_end](../small-nodes/N-25.md) | 지정 표본의 증거·출처·판정 및 모델·비용 보고 구현. FIXTURE 검증 | `tests/test_n25_evaluate_end_to_end.py` · [실행 방법](../../demo/fixtures/README.md) |
 
 테스트: `cd server/session && python -m pytest` (Python 3.11+, pytest). 결과는 모두 source=FIXTURE이며 라이브 성공으로 세지 않는다.
 
@@ -30,6 +31,7 @@
 | `mocks.StaticPairDirectory` | N-01 resolve_pair 페어 승인 (B) | B의 N-01 연동 시 |
 | `ActorContext` 직접 주입 | B-01 인증 토큰 검증 (B) | 제어 엔드포인트 구현 시 |
 | `client_resume_gate.py`, `client_cleanup.py` (Python) | 부모·자녀 앱의 재접속·종료 처리 (A·B, Kotlin) | `android/contract` 골격(이슈 #1) 뒤 A·B가 이식 |
+| `manifest.fixture.json`, `evidence.fixture.json` | AVD·앱·권한·연결 점검과 소수 합성 실행 기록 | A·B·C의 실측 증거 수집 후 `LIVE`로 별도 평가 |
 
 N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.TombstoneRegistry`)은 Mock이 아닌 실제 구현이다(도움별 메모리 상태).
 
@@ -50,6 +52,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 3. [계약 추가 제안](D-role-view-contract.md)을 A·B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
 4. B-07 오케스트레이션(이벤트 → N-21/N-22/N-23 라우팅, 결정 메모 2).
 5. `GET /v1/help/current`·`WS /v1/events` 엔드포인트 (웹 프레임워크 선택 필요).
+6. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인.
 
 ## 하면 안 되는 일
 
@@ -66,3 +69,4 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
 - 이슈 #1 Android 골격 전: 클라이언트 쪽 N-13·N-23 처리의 실제 구현·검증 불가.
+- 두 AVD의 실제 통화·캡처·자산과 L40S 모델·비용 증거가 모이기 전까지 N-24·N-25의 라이브 결과는 `UNVERIFIED`.

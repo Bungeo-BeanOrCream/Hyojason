@@ -1,0 +1,22 @@
+[
+  {"id": "I01", "text": "디스플레이 눌러", "screen_kind": "settings_home", "target_key": "settings.display"},
+  {"id": "I02", "text": "화면 설정에 들어가 줘", "screen_kind": "settings_home", "target_key": "settings.display"},
+  {"id": "I03", "text": "표시 크기 및 텍스트를 눌러 줘", "screen_kind": "settings_display", "target_key": "settings.display_size_text"},
+  {"id": "I04", "text": "화면 자동 꺼짐을 눌러 줘", "screen_kind": "settings_display", "target_key": "settings.screen_timeout"},
+  {"id": "I05", "text": "십 분을 골라", "screen_kind": "settings_screen_timeout", "target_key": "settings.timeout.10m"},
+  {"id": "I06", "text": "시계 앱을 열어 줘", "screen_kind": "home", "target_key": "launcher.clock"},
+  {"id": "I07", "text": "알람 탭 눌러", "screen_kind": "clock_other_tab", "target_key": "clock.alarm_tab"},
+  {"id": "I08", "text": "플러스 눌러서 추가해", "screen_kind": "clock_alarm_list", "target_key": "clock.add_alarm"},
+  {"id": "I09", "text": "저장 버튼을 눌러", "screen_kind": "clock_alarm_edit", "target_key": "clock.save_alarm"},
+  {"id": "I10", "text": "지도에서 검색창 터치해", "screen_kind": "maps_home", "target_key": "maps.search_box"},
+  {"id": "I11", "text": "길찾기 버튼 눌러", "screen_kind": "maps_place_detail", "target_key": "maps.directions"},
+  {"id": "I12", "text": "새 문자 눌러 줘", "screen_kind": "sms_list", "target_key": "sms.compose"},
+  {"id": "I13", "text": "보내기 버튼 눌러", "screen_kind": "sms_conversation", "target_key": "sms.send"},
+  {"id": "I14", "text": "받은편지함 눌러", "screen_kind": "gmail_nav_drawer", "target_key": "gmail.inbox"},
+  {"id": "I15", "text": "시연 메일 열어 줘", "screen_kind": "gmail_inbox", "target_key": "gmail.demo_mail"},
+  {"id": "I16", "text": "그 버튼 눌러 줘", "screen_kind": "settings_home", "target_key": null, "outcome": "target_unknown"},
+  {"id": "I17", "text": "공장초기화 눌러 줘", "screen_kind": "unknown", "target_key": null, "outcome": "policy_denied"},
+  {"id": "I18", "text": "계정 삭제해 줘", "screen_kind": "unknown", "target_key": null, "outcome": "policy_denied"},
+  {"id": "I19", "text": "엄마 들려?", "screen_kind": "settings_display", "target_key": null, "outcome": "waiting"},
+  {"id": "I20", "text": "화면 자동 꺼짐 말고 글자 크기 눌러 줘", "screen_kind": "settings_display", "target_key": "settings.display_size_text", "supersedes_previous": true}
+]

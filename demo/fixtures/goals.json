@@ -1,0 +1,22 @@
+[
+  {"id": "G01", "text": "글자가 작아. 한 단계 키우자", "goal_id": "SET_FONT", "approved_slots": {"steps": 1}},
+  {"id": "G02", "text": "휴대폰 글씨를 크게 해 줘", "goal_id": "SET_FONT", "approved_slots": {}},
+  {"id": "G03", "text": "화면이 십 분 뒤에 꺼지게 하자", "goal_id": "SET_TIMEOUT", "approved_slots": {"duration_minutes": 10}},
+  {"id": "G04", "text": "자동 꺼짐을 10분으로 바꾸자", "goal_id": "SET_TIMEOUT", "approved_slots": {"duration_minutes": 10}},
+  {"id": "G05", "text": "내일 오전 여섯 시 알람 맞추자", "goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "06:00"}},
+  {"id": "G06", "text": "내일 저녁 여섯 시에 알람을 맞춰 줘", "goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "18:00"}},
+  {"id": "G07", "text": "지도에서 서울역 가는 길을 찾자", "goal_id": "MAP_ROUTE", "approved_slots": {"place": "demo-seoul-station"}},
+  {"id": "G08", "text": "국립중앙박물관까지 길을 찾아 줘", "goal_id": "MAP_ROUTE", "approved_slots": {"place": "demo-national-museum"}},
+  {"id": "G09", "text": "시연 수신자에게 테스트 문자를 보내자", "goal_id": "SMS_SEND", "approved_slots": {"recipient_id": "demo-recipient", "message_id": "demo-sms"}},
+  {"id": "G10", "text": "받은편지함에서 시연 메일을 열어 보자", "goal_id": "MAIL_OPEN", "approved_slots": {"mail_id": "demo-mail"}},
+  {"id": "G11", "text": "디스플레이 버튼 눌러", "goal_id": null, "approved_slots": {}},
+  {"id": "G12", "text": "엄마, 내 말 들려?", "goal_id": null, "approved_slots": {}},
+  {"id": "G13", "text": "저기 그거 좀 해 줘", "goal_id": null, "approved_slots": {}},
+  {"id": "G14", "text": "나중에 알람 맞추자", "goal_id": null, "approved_slots": {}},
+  {"id": "G15", "text": "어디든 길을 찾아 줘", "goal_id": null, "approved_slots": {}},
+  {"id": "G16", "text": "휴대폰을 공장 초기화하자", "goal_id": null, "approved_slots": {}},
+  {"id": "G17", "text": "사진을 공유하자", "goal_id": null, "approved_slots": {}},
+  {"id": "G18", "text": "내일 오전 여섯 시 알람 그대로 맞추자", "existing_goal": {"goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "06:00"}}, "goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "06:00"}},
+  {"id": "G19", "text": "알람 대신 글자를 한 단계 키우자", "existing_goal": {"goal_id": "CLOCK_ALARM", "approved_slots": {"day": "tomorrow", "time": "06:00"}}, "goal_id": "SET_FONT", "approved_slots": {"steps": 1}},
+  {"id": "G20", "text": "아니, 화면이 십 분 뒤 꺼지게 해 줘", "existing_goal": {"goal_id": "SET_FONT", "approved_slots": {"steps": 1}}, "goal_id": "SET_TIMEOUT", "approved_slots": {"duration_minutes": 10}}
+]
