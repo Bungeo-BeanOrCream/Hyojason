@@ -55,8 +55,9 @@ internal class AndroidProjectionDevice(
         override fun onCapturedContentResize(width: Int, height: Int) {
             if (closed || width <= 0 || height <= 0) return
             try {
-                synchronized(readerLock) { resize(width, height) }
-                onContentInvalidated()
+                val resized = synchronized(readerLock) { resize(width, height) }
+                // Refreshing the capture surface can report the same size again.
+                if (resized) onContentInvalidated()
             } catch (_: RuntimeException) {
                 onSystemStop()
             }
@@ -92,10 +93,10 @@ internal class AndroidProjectionDevice(
             setOnImageAvailableListener(::readLatest, imageHandler)
         }
 
-    private fun resize(width: Int, height: Int) {
-        val previous = reader ?: return
-        if (previous.width == width && previous.height == height) return
-        val display = virtualDisplay ?: return
+    private fun resize(width: Int, height: Int): Boolean {
+        val previous = reader ?: return false
+        if (previous.width == width && previous.height == height) return false
+        val display = virtualDisplay ?: return false
         val next = makeReader(width, height)
         try {
             display.resize(width, height, densityDpi)
@@ -107,6 +108,7 @@ internal class AndroidProjectionDevice(
         reader = next
         frames.discard()
         previous.close()
+        return true
     }
 
     private fun readLatest(source: ImageReader) {
@@ -124,23 +126,8 @@ internal class AndroidProjectionDevice(
 
     private fun copyPixels(image: Image): FramePixels? {
         val plane = image.planes.singleOrNull() ?: return null
-        val buffer = plane.buffer
-        val lastPixel = (image.height - 1L) * plane.rowStride + (image.width - 1L) * plane.pixelStride + 4
-        val pixelCount = image.width.toLong() * image.height
-        if (plane.pixelStride < 4 || lastPixel > buffer.limit() || pixelCount !in 1..Int.MAX_VALUE.toLong()) {
-            return null
-        }
-        val argb = IntArray(pixelCount.toInt())
-        for (y in 0 until image.height) {
-            for (x in 0 until image.width) {
-                val offset = y * plane.rowStride + x * plane.pixelStride
-                val red = buffer.get(offset).toInt() and 0xff
-                val green = buffer.get(offset + 1).toInt() and 0xff
-                val blue = buffer.get(offset + 2).toInt() and 0xff
-                val alpha = buffer.get(offset + 3).toInt() and 0xff
-                argb[y * image.width + x] = (alpha shl 24) or (red shl 16) or (green shl 8) or blue
-            }
-        }
+        val argb = copyRgbaPlane(plane.buffer, image.width, image.height, plane.rowStride, plane.pixelStride)
+            ?: return null
         return FramePixels(image.width, image.height, argb)
     }
 

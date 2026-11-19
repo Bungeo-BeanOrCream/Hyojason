@@ -4,6 +4,8 @@ import com.hyojason.app.observer.LocalRect
 import com.hyojason.app.contract.Diagnostic
 import com.hyojason.app.contract.NodeResult
 import com.hyojason.app.contract.NodeStatus
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 
 enum class FrameSafety { ALLOWED, PROTECTED, UNKNOWN }
 enum class FrameHealth { READY, PROTECTED, GEOMETRY_UNCERTAIN }
@@ -45,6 +47,24 @@ class FramePixels(val width: Int, val height: Int, private val argb: IntArray) :
     internal fun copyArgb(): IntArray {
         check(!closed)
         return argb.copyOf()
+    }
+
+    internal fun fingerprint(): ByteArray {
+        check(!closed)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val bytes = ByteBuffer.allocate(16_384)
+        val chunk = bytes.asIntBuffer()
+        try {
+            for (offset in argb.indices step chunk.capacity()) {
+                val count = minOf(chunk.capacity(), argb.size - offset)
+                chunk.clear()
+                chunk.put(argb, offset, count)
+                digest.update(bytes.array(), 0, count * Int.SIZE_BYTES)
+            }
+            return digest.digest()
+        } finally {
+            bytes.array().fill(0)
+        }
     }
 
     override fun close() {

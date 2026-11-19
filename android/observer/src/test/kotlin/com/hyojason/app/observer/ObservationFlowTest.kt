@@ -33,7 +33,7 @@ class ObservationFlowTest {
     private var scanOk = true
     private var scanCalls = 0
 
-    private fun flow(epoch: String = "epoch") = ObservationFlow(
+    private fun flow(epoch: String = "epoch", reuseIdenticalScans: Boolean = false) = ObservationFlow(
         epoch, ScreenDetection(listOf(profile)), profile.id, profile.revision, profile.profile_version,
         scan = { _: DetectionInput ->
             scanCalls++
@@ -41,6 +41,7 @@ class ObservationFlowTest {
                 FrameFeature(FeatureKey(FeatureKind.TEXT, v), r)
             } else emptyList()))
         },
+        reuseIdenticalScans = reuseIdenticalScans,
     )
 
     private fun settings(display: LocalRect = target) =
@@ -110,5 +111,22 @@ class ObservationFlowTest {
         val outcome = flow.process(frame(350, masks = masked), diagnostic)
         assertTrue(outcome.detection?.data?.targets.orEmpty().isEmpty())
         assertEquals(emptySet<String>(), outcome.stabilization?.local?.screen?.target_ids)
+    }
+
+    @Test fun b03_1_identicalFreshFrameReusesScanUntilPixelsChange() {
+        val flow = flow(reuseIdenticalScans = true)
+        features = settings()
+        flow.process(frame(100), diagnostic)
+        val stable = flow.process(frame(350), diagnostic).stabilization!!
+        assertEquals(1, scanCalls)
+        assertEquals(350L, stable.local?.captured_mono_ms)
+        assertEquals(target, stable.local?.targets?.single()?.rect)
+
+        val changedPixels = IntArray(400) { 0xffffffff.toInt() }
+        changedPixels[0] = 0xffeeeeee.toInt()
+        features = settings(scrolled)
+        val moved = flow.process(frame(600, argb = changedPixels), diagnostic).stabilization!!
+        assertEquals(2, scanCalls)
+        assertEquals(scrolled, moved.local?.targets?.single()?.rect)
     }
 }

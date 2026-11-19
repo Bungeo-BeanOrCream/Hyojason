@@ -5,12 +5,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
-import android.util.Log
 import android.provider.Settings
+import android.util.Log
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -145,6 +144,9 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private var displayed: LocalGuide? = null
     private var renderBasis: Basis? = null
     private var renderOfferId: String? = null
+    private val settingsNotice = SettingsGuidanceNotification(activity)
+    private var lastSettingsNotice: Pair<Basis, String>? = null
+    private var settingsNoticeActive = false
 
     private val host = AndroidSurfaceHost(activity) { action ->
         if (action == SurfaceUserEvent.DISMISS_GUIDE) {
@@ -309,6 +311,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             completionNotice = false
         }
         if (incomingHelp != helpId) return
+        logEvent(type, payload)
         when (type) {
             "help.view" -> {
                 val view = payload.optJSONObject("parent_view")
@@ -332,7 +335,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             "instruction.cleared" -> setInstruction(null)
             "mode.changed" -> applyMode(HelpMode.valueOf(payload.getString("mode")))
             "screen.reobserve" -> published = null
-            "guide.suspend" -> { decision = null; clearOverlay() }
+            "guide.suspend" -> { decision = null; clearOverlay("guide_suspend") }
             "assist.decision" -> {
                 traceId = payload.stringOrNull("trace_id")
                 decision = payload
@@ -358,7 +361,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         t0 = next?.let { SystemClock.elapsedRealtime() }
         decision = null
         awaitingVerdict = false
-        clearOverlay()
+        clearOverlay("new_instruction")
     }
 
     private fun applyMode(next: HelpMode) {
@@ -369,7 +372,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         awaitingVerdict = false
         local = null
         published = null
-        clearOverlay()
+        clearOverlay("mode_change")
     }
 
     private suspend fun requestCapture() {
@@ -379,8 +382,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             status?.text = "두 사람이 안내에 동의하고 통화를 연결해 주세요."
             return
         }
-        if (!Settings.canDrawOverlays(activity)) {
-            activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${activity.packageName}")))
+        if (!settingsNotice.enabled()) {
+            status?.text = "설정 화면에서 안내를 받으려면 효자손 알림을 허용해 주세요."
+            activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
             return
         }
         approvalBasis = basis
@@ -421,7 +426,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                 decision = null
                 if (active?.isClosed == true) frames = null
                 flow = frames?.let(::observationFlow)
-                clearOverlay()
+                clearOverlay("projection_invalidated")
                 updateButtons()
             })
         val capture = opened?.data?.frame_source
@@ -440,9 +445,13 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             scan = { input ->
                 val ready = CountDownLatch(1)
                 var features = FeatureScan(FeatureKind.TEXT, false, emptyList())
+                val started = SystemClock.elapsedRealtime()
                 scanner.value.scan(input, profile) { result -> features = result; ready.countDown() }
-                if (ready.await(1_200, TimeUnit.MILLISECONDS)) listOf(features) else emptyList()
-            }, previousScreenRevision = lastScreenRevision)
+                val done = ready.await(1_200, TimeUnit.MILLISECONDS)
+                // #32: OCR latency only. No recognized text, rects or pixels.
+                Log.i(OCR_LOG, "scan_ms=${SystemClock.elapsedRealtime() - started} timed_out=${!done}")
+                if (done) listOf(features) else emptyList()
+            }, previousScreenRevision = lastScreenRevision, reuseIdenticalScans = true)
 
     private suspend fun readFrame() {
         val source = frames ?: return
@@ -456,7 +465,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             captured.use { pipeline.process(input, diagnostic).stabilization }
         } ?: return
         if (frames != source || flow != pipeline) return
-        if (observation.locationInvalidated || observation.verdictPending) clearOverlay()
+        if (observation.locationInvalidated) clearOverlay("location_invalidated")
+        else if (observation.verdictPending) clearOverlay("verdict_pending")
         local = observation.local
         val screen = observation.screenToPublish ?: observation.local?.screen ?: return
         if (screen != published) {
@@ -485,7 +495,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         val offerId = value.stringOrNull("decision_id") ?: return clearOverlay()
         val basis = value.optJSONObject("basis")?.let(::basisFrom) ?: return clearOverlay()
         val observation = local ?: return clearOverlay()
-        if (!connected || basis.help_id != helpId || basis.call_id != callId ||
+        if (!connected || !receivesHelp || basis.help_id != helpId || basis.call_id != callId ||
             (mode == HelpMode.CALL_CHILD_LED && (instruction == null || basis.instruction_revision != instruction))) {
             return clearOverlay()
         }
@@ -508,9 +518,28 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             target, verdict, recovery, proposal, policyDenied = value.stringOrNull("warning") != null)
         val diagnostic = diagnostic("B-06", basis)
         val gate = GuideGate.evaluate(input, diagnostic)
-        logGate(gate.diagnostics.terminal_error?.code ?: gate.outcome, input, observation)
+        val gateError = gate.diagnostics.terminal_error?.code
+        logGate(gateError ?: gate.outcome, input, observation)
         val next = gate.data?.display
-        if (!Settings.canDrawOverlays(activity) || next == null) return clearOverlay()
+        if (next == null) {
+            if (settingsNoticeActive && keepSettingsNoticeOn(gateError, observation.screen.observation_health)) return
+            return clearOverlay("gate_${gateError ?: gate.outcome}")
+        }
+        // The supported Android Settings screen hides third-party overlay windows.
+        if (observation.screen.screen_kind.startsWith("settings_")) {
+            val targetId = if (mode == HelpMode.CALL_CHILD_LED) target?.value?.targetId else proposal?.value?.targetId
+            val message = settingsGuidanceText(next, targetId) ?: return clearOverlay("no_allowed_text")
+            if (displayed != null) clearOverlay("settings_screen")
+            val key = basis.copy(event_seq = null, utterance_seq = null) to message
+            if (lastSettingsNotice != key && settingsNotice.show(message)) {
+                lastSettingsNotice = key
+                settingsNoticeActive = true
+                Log.i(NOTICE_LOG, "posted")
+            }
+            return
+        }
+        clearSettingsNotice("non_settings_screen")
+        if (!Settings.canDrawOverlays(activity)) return clearOverlay("no_overlay_permission")
         if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
@@ -519,6 +548,17 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             renderOfferId = offerId
             send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
         }
+    }
+
+    /** Instruction chain trace: event type and revisions only. No utterance, target text or rects. */
+    private fun logEvent(type: String, payload: JSONObject) {
+        if (type !in setOf("instruction.accepted", "instruction.cleared", "assist.decision", "guide.suspend",
+                "mode.changed", "screen.reobserve", "help.ended", "observation.stop")) return
+        val basis = payload.optJSONObject("basis")
+        val revision = payload.longOrNull("instruction_revision") ?: basis?.longOrNull("instruction_revision")
+        val extra = if (type == "assist.decision") " target=${payload.optJSONObject("target") != null} " +
+            "verdict=${payload.optJSONObject("verdict") != null} screen_rev=${basis?.longOrNull("screen_revision")}" else ""
+        Log.i(EVENT_LOG, "recv=$type instr_rev=$revision current_instr=$instruction mode=$mode$extra")
     }
 
     private var lastGateLog = ""
@@ -568,11 +608,21 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             .put("target_ids", JSONArray()).put("evidence_codes", JSONArray()))
     }
 
-    private fun clearOverlay() {
+    private fun clearOverlay(reason: String = "render") {
+        clearSettingsNotice(reason)
         if (displayed != null) host.clear()
         displayed = null
         renderOfferId = null
         renderBasis = null
+    }
+
+    /** Reason codes only: no utterance, screen text, rect or pixels. */
+    private fun clearSettingsNotice(reason: String) {
+        if (settingsNoticeActive) {
+            settingsNotice.clear()
+            Log.i(NOTICE_LOG, "cancel reason=$reason")
+        }
+        settingsNoticeActive = false
     }
 
     private fun stopCapture() {
@@ -583,7 +633,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         local = null
         published = null
         decision = null
-        clearOverlay()
+        clearOverlay("capture_stopped")
+        lastSettingsNotice = null
     }
 
     override fun close() {
@@ -594,5 +645,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         if (bound) activity.unbindService(service)
     }
 
-    companion object { const val CAPTURE_REQUEST = 42 }
+    companion object {
+        const val CAPTURE_REQUEST = 42
+        private const val NOTICE_LOG = "HyojasonNotice"
+        private const val EVENT_LOG = "HyojasonEvent"
+        private const val OCR_LOG = "HyojasonOcr"
+    }
 }
