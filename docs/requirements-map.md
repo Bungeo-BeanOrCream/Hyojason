@@ -9,7 +9,7 @@
 | B-1 · 분석·부모 상태 | [N-02](small-nodes/N-02.md) · [N-06](small-nodes/N-06.md) | 동의 후 역할별 확정. 자녀만 행동 트리거 |
 | B-2 · 버튼 지시 알아듣기 | [N-15](small-nodes/N-15.md) · [N-27](small-nodes/N-27.md) | 지시 20개 중 17개 이상 기대 해석 |
 | B-3 · 여러 지시 순차 처리 P1 | [N-15](small-nodes/N-15.md) | P0은 최신 단일 지시. 자동 큐는 P1 |
-| B · 목표 파악과 슬롯 | [N-15](small-nodes/N-15.md) | 지원 목표와 유효 슬롯을 추출. 모호하면 보류 |
+| B · 목표 파악과 슬롯 | [N-15](small-nodes/N-15.md) | 대화 전체로 Zoro-1이 목표 확률을 갱신하고 1위를 목표로 설정, 대화 중 목표 변경 반영. 모호하면 기존 목표 유지 |
 | C-1~C-12 · 통화 중 층별 위치·무개입·복구 | [N-16](small-nodes/N-16.md) · [N-27](small-nodes/N-27.md) · [N-28](small-nodes/N-28.md) · [B-06](big-nodes/B-06.md) | 자녀 지시 위치 미리 준비. 3초 이내 정답 0회 표시. 고정 증거로 TAP/SCROLL_DOWN/BACK을 검증 |
 | C-1~C-12 · 새 지시 재시작, 부모 발화, 보호, 터치 통과 | [N-11](small-nodes/N-11.md) · [N-19](small-nodes/N-19.md) · [N-20](small-nodes/N-20.md) | 이전 타이머·표시 폐기. 부모 발화의 조기 표시 0. 위험 지정 문구. 실제 터치 통과 |
 | C-13 · 통화 후 현재 화면 다음 안내 | [N-17](small-nodes/N-17.md) · [N-19](small-nodes/N-19.md) | 확정 종료 및 새 의미 화면 이후 3초. 현재 목표·후보 근거로 1단계 |

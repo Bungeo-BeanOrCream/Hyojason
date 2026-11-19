@@ -69,7 +69,7 @@ StepDiagnostic의 status는 success / failed / skipped다. code는 짧은 고정
 | TargetDecision/ActionVerdict/GuideProposal/ArrivalDecision | N-27/N-28/N-17/N-18이 제안 | B-06/B-07이 최신 Basis로 검사한 뒤 실행. 제안 결과를 되돌려서 관찰 결과로 만들지 않는다 |
 | 표시·종료 확인 | B-06/B-07에서 관측 | guide.shown/suppressed, help.ended를 N-11에 받은 뒤 다음 N-16/18에 반영한다 |
 
-Basis의 필수 키는 pair_id, call_id, help_id, event_seq, consent_revision, goal_revision, mode_revision, instruction_revision, projection_epoch, screen_revision, utterance_seq다. 해당 단계에서 생성 전이거나 관여하지 않으면 null로 표시한다. 숫자는 0 이상의 정수다. 모든 표시 및 도착 제안은 도움·동의·모드·화면·캡처 버전이 전부 존재해야 한다. 통화 중에는 instruction_revision, 통화 후에는 goal_revision이 필수다. N-15의 발화 판단은 최신 자녀 utterance_seq와 일치해야 한다. N-28은 증거 화면 쌍을 검사하고 N-19는 로컬 레이아웃과 조작 보류 상태를 추가로 본다. 결과에 참여하지 않은 버전이 달라졌다는 이유로 무관한 계산을 폐기하지 않는다.
+Basis의 필수 키는 pair_id, call_id, help_id, event_seq, consent_revision, goal_revision, mode_revision, instruction_revision, projection_epoch, screen_revision, utterance_seq다. 해당 단계에서 생성 전이거나 관여하지 않으면 null로 표시한다. 숫자는 0 이상의 정수다. 모든 표시 및 도착 제안은 도움·동의·모드·화면·캡처 버전이 전부 존재해야 한다. 통화 중에는 instruction_revision, 통화 후에는 goal_revision이 필수다. N-15의 지시 판단은 최신 자녀 utterance_seq, 목표 확률 판단은 최신 확정 utterance_seq(두 역할)와 일치해야 한다. N-28은 증거 화면 쌍을 검사하고 N-19는 로컬 레이아웃과 조작 보류 상태를 추가로 본다. 결과에 참여하지 않은 버전이 달라졌다는 이유로 무관한 계산을 폐기하지 않는다.
 
 ResultRef의 필수 키는 trace_id, node_id, run_id다. 대상 결과의 Basis는 참조를 읽는 쪽이 다시 검사한다. 결과는 도움별 제한된 메모리 상태에 두고 보존 기간은 **도움 종료까지**다. 프레임·오디오·좌표·발화 원문은 이 상태 기록에 저장하지 않는다. 승인한 지시의 행동·target_id와 화면 revision은 기록하며 실제 픽셀 좌표는 로컬에서만 읽는다. 자녀 화면에는 역할에 허용된 요약만 전달한다. 종료에 필요한 멱등 식별자는 사용자 내용 없이 짧게 유지할 수 있다. 이전 노드는 자신의 과거 결과를 수정하지 않는다. 후속 결과에서 재관찰이 필요하면 새 관찰 이벤트를 보내고, 해당 버전의 새 노드 실행에서 읽는다.
 
