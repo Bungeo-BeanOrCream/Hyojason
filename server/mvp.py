@@ -24,6 +24,7 @@ from hyojason_voice.call import Operation
 from pydantic import BaseModel
 
 from .agent.b05_workflow import B05Workflow
+from .agent.profiles import TARGETS
 
 log = logging.getLogger("hyojason.mvp")
 
@@ -109,10 +110,18 @@ class IntegratedHub(AssistedSessionHub):
             voice_service.retire_pair(view.pair_id)
 
 
+def below_fold_codes() -> tuple[str, ...]:
+    """below_fold:<screen>:<target> + scroll_down:<screen>: a device reports a known target that is
+    off-screen in a fixed list, so B-05 can offer SCROLL_DOWN (profiles.below_fold_evidence)."""
+    return tuple(dict.fromkeys(
+        code for target_id, profile in TARGETS.items() if target_id in TARGET_IDS
+        for code in (f"below_fold:{profile.screen}:{target_id}", f"scroll_down:{profile.screen}")))
+
+
 def create_app(workflow: B05Workflow | None = None, *, fixture: bool = False) -> FastAPI:
     """Mount control routes beside the voice API. Use one process for its memory state."""
     evidence = ("visible_target", "stable_screen_transition", "alarm_next:tomorrow:06:00",
-                *(f"observed:{target}" for target in TARGET_IDS))
+                *(f"observed:{target}" for target in TARGET_IDS), *below_fold_codes())
     config = ServerConfig(authenticator=voice_service, service_token=token_urlsafe(),
                           catalog=default_catalog(evidence),
                           source=Source.FIXTURE if fixture else Source.LIVE)

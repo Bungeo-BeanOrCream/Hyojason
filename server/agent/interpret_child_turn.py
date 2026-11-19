@@ -36,7 +36,13 @@ from .infer_zoro_choice import (
 from .profiles import GOAL_LABELS, POLICY_REVISION, TARGETS, is_dangerous, normalize
 
 TurnKind = Literal["instruction", "goal", "instruction_and_goal", "none", "blocked"]
-_TAP_WORDS = re.compile(r"누르|눌러|골라|선택|터치|클릭|들어가|열어")
+# 버튼 이름을 직접 말하지 않는 이동 표현("디스플레이 메뉴로 들어가줘", "거기로 가 봐", "10분으로 해 줘")도
+# 지시로 받는다. 대상은 아래에서 프로필 이름이 발화에 있을 때만 정해지므로 동사만 넓힌다.
+_TAP_WORDS = re.compile(
+    r"누르|눌러|골라|고르|선택|터치|클릭|탭|들어가|열어|열기|이동|켜|바꿔|맞춰"
+    r"|(?:으로|로|에)\s*가|가\s*봐|해\s*줘|해\s*봐|해\s*주세요|하세요"
+)
+_NEGATED = ("누르지마", "누르면안", "누르지말", "선택하지마", "들어가지마", "가지마", "켜지마", "하지마", "하지말")
 # STT는 "6시"와 "여섯 시"를 섞어 낸다(#22). 시는 숫자·한글 수사, 분은 숫자·한글 수사·"반"을 받는다.
 _HOUR_WORDS = {
     "열한": 11, "열두": 12, "한": 1, "두": 2, "세": 3, "네": 4, "다섯": 5,
@@ -221,11 +227,9 @@ def parse_instruction(speech: FinalUtterance) -> InstructionDraft | None:
         clause = re.split(r"말고|대신", clause)[-1]
         if not _TAP_WORDS.search(clause):
             continue
-        normalized = normalize(clause)
-        if any(
-            stop in normalized
-            for stop in ("누르지마", "누르면안", "누르지말", "선택하지마")
-        ):
+        # 앱 이름 뒤의 "어플"·"어플리케이션"은 프로필 이름의 "앱"과 같은 말이다("문자 어플" = "문자 앱").
+        normalized = re.sub(r"어플(?:리케이션)?", "앱", normalize(clause))
+        if any(stop in normalized for stop in _NEGATED):
             continue
         lengths = {
             target_id: max(
@@ -246,7 +250,7 @@ def parse_instruction(speech: FinalUtterance) -> InstructionDraft | None:
             if size == longest and size > 0
         ]
         if matches or any(
-            word in normalized for word in ("버튼", "그거", "저거", "그곳")
+            word in normalized for word in ("버튼", "그거", "저거", "그곳", "거기")
         ):
             return InstructionDraft(
                 source_utterance_id=speech.utterance_id,
