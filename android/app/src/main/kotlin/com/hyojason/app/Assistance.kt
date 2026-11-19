@@ -564,7 +564,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         }
         val input = GateInput(mode, basis, basis.copy(projection_epoch = observation.screen.projection_epoch,
             screen_revision = observation.screen.screen_revision), observation.layout_revision,
-            SystemClock.elapsedRealtime(), t0, observation,
+            SystemClock.elapsedRealtime(), t0, withAppIcons(observation),
             if (awaitingVerdict) InputEvidence.PENDING else InputEvidence.CONTINUOUS_NO_CHANGE,
             target, verdict, recovery, proposal, policyDenied = value.stringOrNull("warning") != null)
         val diagnostic = diagnostic("B-06", basis)
@@ -629,6 +629,25 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         "home" -> LAUNCHER_APPS.filterNot { it in ids }.map { "below_fold:home:$it" }
             .let { if (it.isEmpty()) it else it + "scroll_down:home" }
         else -> emptyList()
+    }
+
+    /**
+     * On the launcher OCR finds only an app's label, which sits under its icon. Grow a launcher target's
+     * rect up over the icon and out to the icon width so the red border frames the whole app.
+     */
+    private fun withAppIcons(observation: LocalObservation): LocalObservation {
+        if (observation.screen.screen_kind != "home") return observation
+        val density = activity.resources.displayMetrics.density
+        val screenWidth = activity.resources.displayMetrics.widthPixels
+        fun px(dp: Int) = (dp * density + 0.5f).toInt()
+        return observation.copy(targets = observation.targets.map { target ->
+            if (!target.target_id.startsWith("launcher.")) return@map target
+            val r = target.rect
+            val half = maxOf((r.right - r.left) / 2 + px(8), px(40))
+            val center = (r.left + r.right) / 2
+            target.copy(rect = LocalRect((center - half).coerceAtLeast(0), (r.top - px(88)).coerceAtLeast(0),
+                (center + half).coerceAtMost(screenWidth), r.bottom + px(6)))
+        })
     }
 
     /** EXPERIMENT: per-2s counts of loop outcomes (no frame / no stabilization / processed). */
