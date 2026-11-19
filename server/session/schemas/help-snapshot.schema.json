@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HelpSnapshot",
+  "description": "N-11 원본 도움 상태. 서버 내부용이며 역할 앱에는 N-21 투영만 보낸다.",
+  "type": "object",
+  "properties": {
+    "pair_id": {
+      "type": "string"
+    },
+    "call_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "help_id": {
+      "type": "string"
+    },
+    "call_state": {
+      "$ref": "#/$defs/CallState"
+    },
+    "help_state": {
+      "$ref": "#/$defs/HelpState"
+    },
+    "mode": {
+      "$ref": "#/$defs/Mode"
+    },
+    "mode_revision": {
+      "type": "integer"
+    },
+    "goal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Goal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "instruction": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Instruction"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "screen": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScreenState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "trail_cursor": {
+      "type": "integer"
+    },
+    "consent_revision": {
+      "type": "integer"
+    },
+    "event_seq": {
+      "type": "integer"
+    },
+    "end_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EndReason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "pair_id",
+    "call_id",
+    "help_id",
+    "call_state",
+    "help_state",
+    "mode",
+    "mode_revision",
+    "goal",
+    "instruction",
+    "screen",
+    "trail_cursor",
+    "consent_revision",
+    "event_seq",
+    "end_reason"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Action": {
+      "type": "string",
+      "enum": [
+        "TAP",
+        "BACK",
+        "SCROLL_DOWN",
+        "SCROLL_UP",
+        "INPUT_HINT",
+        "WAIT"
+      ]
+    },
+    "CallState": {
+      "type": "string",
+      "enum": [
+        "IDLE",
+        "RINGING",
+        "ACTIVE",
+        "RECONNECTING",
+        "ENDED"
+      ]
+    },
+    "EndReason": {
+      "type": "string",
+      "enum": [
+        "CHILD_COMPLETED",
+        "PARENT_STOPPED",
+        "NO_GOAL_AT_HANGUP"
+      ]
+    },
+    "Goal": {
+      "type": "object",
+      "properties": {
+        "goal_id": {
+          "type": "string"
+        },
+        "goal_revision": {
+          "type": "integer"
+        },
+        "approved_slots": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "source_utterance_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal_id",
+        "goal_revision",
+        "approved_slots",
+        "source_utterance_id"
+      ],
+      "additionalProperties": false
+    },
+    "HelpState": {
+      "type": "string",
+      "enum": [
+        "LISTENING",
+        "ACTIVE",
+        "ARRIVAL_PENDING",
+        "ENDED"
+      ]
+    },
+    "Instruction": {
+      "type": "object",
+      "properties": {
+        "instruction_id": {
+          "type": "string"
+        },
+        "instruction_revision": {
+          "type": "integer"
+        },
+        "source_utterance_id": {
+          "type": "string"
+        },
+        "target_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "origin_screen_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "instruction_id",
+        "instruction_revision",
+        "source_utterance_id",
+        "target_key",
+        "action",
+        "origin_screen_revision"
+      ],
+      "additionalProperties": false
+    },
+    "Mode": {
+      "type": "string",
+      "enum": [
+        "CALL_CHILD_LED",
+        "POST_CALL_AGENT"
+      ]
+    },
+    "ObservationHealth": {
+      "type": "string",
+      "enum": [
+        "NOT_GRANTED",
+        "ACTIVE",
+        "GAP",
+        "STOPPED"
+      ]
+    },
+    "ScreenState": {
+      "type": "object",
+      "properties": {
+        "projection_epoch": {
+          "type": "string"
+        },
+        "screen_revision": {
+          "type": "integer"
+        },
+        "screen_kind": {
+          "type": "string"
+        },
+        "target_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidence_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "observation_health": {
+          "$ref": "#/$defs/ObservationHealth"
+        }
+      },
+      "required": [
+        "projection_epoch",
+        "screen_revision",
+        "screen_kind",
+        "target_ids",
+        "evidence_codes",
+        "observation_health"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

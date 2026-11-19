@@ -1,0 +1,279 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NodeResult",
+  "description": "모든 Small Node의 공통 결과 봉투 (docs/node-result-contract.md). data는 노드별 타입.",
+  "type": "object",
+  "properties": {
+    "status": {
+      "$ref": "#/$defs/Status"
+    },
+    "outcome": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "data": {
+      "anyOf": [
+        {},
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "diagnostics": {
+      "$ref": "#/$defs/Diagnostic"
+    }
+  },
+  "required": [
+    "status",
+    "outcome",
+    "data",
+    "diagnostics"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Basis": {
+      "type": "object",
+      "properties": {
+        "pair_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "help_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_seq": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "consent_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "goal_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "instruction_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "projection_epoch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "screen_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "utterance_seq": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "pair_id",
+        "call_id",
+        "help_id",
+        "event_seq",
+        "consent_revision",
+        "goal_revision",
+        "mode_revision",
+        "instruction_revision",
+        "projection_epoch",
+        "screen_revision",
+        "utterance_seq"
+      ],
+      "additionalProperties": false
+    },
+    "Diagnostic": {
+      "type": "object",
+      "properties": {
+        "trace_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "basis": {
+          "$ref": "#/$defs/Basis"
+        },
+        "input_refs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResultRef"
+          }
+        },
+        "duration_ms": {
+          "type": "integer"
+        },
+        "steps": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/StepDiagnostic"
+          }
+        },
+        "terminal_error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorDescriptor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "trace_id",
+        "run_id",
+        "node_id",
+        "source",
+        "basis",
+        "input_refs",
+        "duration_ms",
+        "steps",
+        "terminal_error"
+      ],
+      "additionalProperties": false
+    },
+    "ErrorDescriptor": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "step": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "step",
+        "retryable"
+      ],
+      "additionalProperties": false
+    },
+    "ResultRef": {
+      "type": "object",
+      "properties": {
+        "trace_id": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "trace_id",
+        "node_id",
+        "run_id"
+      ],
+      "additionalProperties": false
+    },
+    "Source": {
+      "type": "string",
+      "enum": [
+        "LIVE",
+        "FIXTURE"
+      ]
+    },
+    "Status": {
+      "type": "string",
+      "enum": [
+        "success",
+        "partial",
+        "error"
+      ]
+    },
+    "StepDiagnostic": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/StepStatus"
+        },
+        "code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duration_ms": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "count": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "retryable": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "code"
+      ],
+      "additionalProperties": false
+    },
+    "StepStatus": {
+      "type": "string",
+      "enum": [
+        "success",
+        "failed",
+        "skipped"
+      ]
+    }
+  }
+}

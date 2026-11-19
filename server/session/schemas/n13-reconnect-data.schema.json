@@ -1,0 +1,289 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "N-13 ReconnectData",
+  "description": "N-13 reconcile_reconnect의 NodeResult.data.",
+  "type": "object",
+  "properties": {
+    "snapshot": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RoleSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "server_event_seq": {
+      "type": "integer"
+    },
+    "must_reobserve": {
+      "type": "boolean"
+    },
+    "resume_state": {
+      "$ref": "#/$defs/ResumeState"
+    }
+  },
+  "required": [
+    "snapshot",
+    "server_event_seq",
+    "must_reobserve",
+    "resume_state"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Action": {
+      "type": "string",
+      "enum": [
+        "TAP",
+        "BACK",
+        "SCROLL_DOWN",
+        "SCROLL_UP",
+        "INPUT_HINT",
+        "WAIT"
+      ]
+    },
+    "ArrivalIndicator": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "SUSPECTED"
+      ]
+    },
+    "CallState": {
+      "type": "string",
+      "enum": [
+        "IDLE",
+        "RINGING",
+        "ACTIVE",
+        "RECONNECTING",
+        "ENDED"
+      ]
+    },
+    "ChildView": {
+      "type": "object",
+      "properties": {
+        "call_state": {
+          "$ref": "#/$defs/CallState"
+        },
+        "can_complete": {
+          "type": "boolean"
+        },
+        "arrival_indicator": {
+          "$ref": "#/$defs/ArrivalIndicator"
+        }
+      },
+      "required": [
+        "call_state",
+        "can_complete",
+        "arrival_indicator"
+      ],
+      "additionalProperties": false
+    },
+    "HelpState": {
+      "type": "string",
+      "enum": [
+        "LISTENING",
+        "ACTIVE",
+        "ARRIVAL_PENDING",
+        "ENDED"
+      ]
+    },
+    "Mode": {
+      "type": "string",
+      "enum": [
+        "CALL_CHILD_LED",
+        "POST_CALL_AGENT"
+      ]
+    },
+    "ParentGoalView": {
+      "type": "object",
+      "properties": {
+        "goal_id": {
+          "type": "string"
+        },
+        "goal_revision": {
+          "type": "integer"
+        },
+        "approved_slots": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "goal_id",
+        "goal_revision",
+        "approved_slots"
+      ],
+      "additionalProperties": false
+    },
+    "ParentInstructionView": {
+      "type": "object",
+      "properties": {
+        "instruction_id": {
+          "type": "string"
+        },
+        "instruction_revision": {
+          "type": "integer"
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        },
+        "target_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "instruction_id",
+        "instruction_revision",
+        "action",
+        "target_key"
+      ],
+      "additionalProperties": false
+    },
+    "ParentStatus": {
+      "type": "string",
+      "enum": [
+        "LISTENING",
+        "CALL_GUIDING",
+        "POST_CALL_GUIDING",
+        "ARRIVAL_PENDING",
+        "COMPLETED",
+        "STOPPED",
+        "ENDED"
+      ]
+    },
+    "ParentView": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/ParentStatus"
+        },
+        "call_state": {
+          "$ref": "#/$defs/CallState"
+        },
+        "help_state": {
+          "$ref": "#/$defs/HelpState"
+        },
+        "mode": {
+          "$ref": "#/$defs/Mode"
+        },
+        "mode_revision": {
+          "type": "integer"
+        },
+        "goal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParentGoalView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParentInstructionView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "can_stop_guidance": {
+          "type": "boolean"
+        },
+        "completion_message_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "call_state",
+        "help_state",
+        "mode",
+        "mode_revision",
+        "goal",
+        "instruction",
+        "can_stop_guidance",
+        "completion_message_key"
+      ],
+      "additionalProperties": false
+    },
+    "ResumeState": {
+      "type": "string",
+      "enum": [
+        "RESUMED",
+        "SWITCHED",
+        "ENDED",
+        "UNKNOWN",
+        "NO_HELP"
+      ]
+    },
+    "Role": {
+      "type": "string",
+      "enum": [
+        "PARENT",
+        "CHILD"
+      ]
+    },
+    "RoleSnapshot": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/Role"
+        },
+        "pair_id": {
+          "type": "string"
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "help_id": {
+          "type": "string"
+        },
+        "parent_view": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParentView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "child_view": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChildView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "role",
+        "pair_id",
+        "call_id",
+        "help_id",
+        "parent_view",
+        "child_view"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
