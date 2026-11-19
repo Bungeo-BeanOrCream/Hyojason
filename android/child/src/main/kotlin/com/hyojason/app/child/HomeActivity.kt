@@ -90,7 +90,10 @@ class HomeActivity : Activity() {
             api.isPaired(store.role, pid).onSuccess { if (it) onPaired(pid) }
             return
         }
-        if (consentOn == null) api.consentEnabled().onSuccess { consentOn = it; if (screen == Screen.HOME) redraw() }
+        // 상대가 나중에 동의·철회해도 홈 표시가 따라오게 매번 읽는다. ponytail: WS /v1/events가 생기면 consent 이벤트로
+        if (screen == Screen.HOME || consentOn == null) api.consentEnabled().onSuccess {
+            if (it != consentOn) { consentOn = it; if (screen == Screen.HOME) redraw() }
+        }
         localScreen()?.let { return render(it) }
         api.current()
             .onSuccess { c ->
