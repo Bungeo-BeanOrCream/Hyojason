@@ -17,6 +17,8 @@ debug 빌드는 `com.hyojason.app.debug.VerificationActivity`를 실행한다. �
 
 Android SDK Platform 35, Build Tools 35.0.0 및 JDK 17로 실행한다.
 
+Windows에서는 Android Studio 동기화와 CLI 빌드에 영문 경로를 사용한다. 한글 경로에 작업 폴더가 있으면 `subst`로 영문 드라이브 경로를 만들어 그 경로에서 프로젝트를 연다.
+
 ```powershell
 .\gradlew.bat :contract:test :observer:testDebugUnitTest :overlay:testDebugUnitTest :rtc:testDebugUnitTest :child:testDebugUnitTest :app:assembleDebug
 ```

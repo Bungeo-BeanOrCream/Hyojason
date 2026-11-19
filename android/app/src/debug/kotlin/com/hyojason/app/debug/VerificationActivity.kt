@@ -52,6 +52,7 @@ class VerificationActivity : Activity() {
         content.button("화면 공유 중지") { capture?.stop() }.isEnabled = capture != null
         content.addView(overlayStatus)
         content.button("오버레이 권한 설정") {
+            clearTestOverlay()
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         }
         content.button("테스트 테두리 표시") { showTestOverlay() }
@@ -73,7 +74,7 @@ class VerificationActivity : Activity() {
     }
 
     private fun showTestOverlay() {
-        if (testOverlay != null || !Settings.canDrawOverlays(this)) {
+        if (overlayOwner != null || !Settings.canDrawOverlays(this)) {
             refreshOverlayStatus()
             return
         }
@@ -95,6 +96,7 @@ class VerificationActivity : Activity() {
         try {
             overlayWindowManager.addView(rectangle, params)
             testOverlay = rectangle
+            overlayOwner = this
             refreshOverlayStatus()
         } catch (_: WindowManager.BadTokenException) {
             overlayStatus.text = "테스트 테두리를 표시할 수 없어요."
@@ -104,8 +106,14 @@ class VerificationActivity : Activity() {
     }
 
     private fun clearTestOverlay() {
+        overlayOwner?.removeOwnedOverlay()
+        refreshOverlayStatus()
+    }
+
+    private fun removeOwnedOverlay() {
         val rectangle = testOverlay
         testOverlay = null
+        overlayOwner = null
         if (rectangle != null) {
             try {
                 overlayWindowManager.removeViewImmediate(rectangle)
@@ -113,12 +121,11 @@ class VerificationActivity : Activity() {
                 // Android may have already removed the window after permission was revoked.
             }
         }
-        refreshOverlayStatus()
     }
 
     private fun refreshOverlayStatus() {
         overlayStatus.text = when {
-            testOverlay != null -> "테스트 테두리 표시 중"
+            overlayOwner != null -> "테스트 테두리 표시 중"
             Settings.canDrawOverlays(this) -> "오버레이 권한 허용됨"
             else -> "오버레이 권한 필요"
         }
@@ -134,8 +141,13 @@ class VerificationActivity : Activity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     override fun onDestroy() {
-        clearTestOverlay()
+        if (overlayOwner === this) removeOwnedOverlay()
         capture?.close()
         super.onDestroy()
+    }
+
+    private companion object {
+        // All launcher instances share one non-touchable overlay on the main thread.
+        var overlayOwner: VerificationActivity? = null
     }
 }
