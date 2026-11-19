@@ -33,6 +33,9 @@ class ProjectionFrames internal constructor(val epoch: String) : AutoCloseable {
     private var latest: CapturedPixels? = null
     private var closed = false
 
+    val isClosed: Boolean
+        @Synchronized get() = closed
+
     @Synchronized
     internal fun publish(frame: CapturedPixels) {
         if (closed || frame.projectionEpoch != epoch) {

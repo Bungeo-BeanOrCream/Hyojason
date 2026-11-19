@@ -61,6 +61,7 @@ class ProjectionSessionTest {
         assertEquals(1, stops)
         assertEquals(1, cleared)
         assertNull(source.take())
+        assertTrue(source.isClosed)
         assertEquals(0, pixels[0])
     }
 
