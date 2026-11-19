@@ -72,11 +72,17 @@
 - 값은 `endHelp`에서만 지운다. 통화 종료·네트워크 끊김은 holder에 알리지 않으므로 유지되고, 다른 help_id로는 이전 값을 돌려주지 않는다.
 - 봉투 필드명은 바꾸지 않았다. D의 `docs/contracts.md` PR 합의 뒤 필요하면 맞춘다. JVM 테스트 2개 추가(app 9개), 통과.
 
+## N-20 부모 표시 구현 (2026-11-19)
+
+- `overlay/surface`: 판단은 `ParentSurfaces.render`(JVM, 테스트 20.1~20.5 통과), Android 창은 `AndroidSurfaceHost`로 분리했다. 테두리 창은 `FLAG_NOT_TOUCHABLE`, 상단 띠는 끄기·통화로 버튼만 터치를 받는다.
+- 결과: 표시 `success/shown`, 정리 `success/cleared`, 테두리만 막힘 `partial/banner_only`, 권한 없음·띠 창 실패 `error`(`OVERLAY_DENIED`/`WINDOW_FAILED`, 창 모두 제거).
+- `UNVERIFIED`: 실제 터치 통과, 권한 철회 시 소멸, Settings 대상·Clock 저장 터치는 AVD·시연 기기에서 사람이 확인해야 한다. 사용자 이벤트(끄기/통화로)를 N-22로 보내는 연결과 N-19 결과를 `SurfaceInput`으로 잇는 호출부는 아직 없다.
+
 ## 진행 상태
 
 - 현재 상태: 골격 PR #7(`A-gradle-skeleton`, e32106f 포함)과 #8·#9는 `main`에 머지됐다. 로컬 `A`는 머지 전 기준(merge-base `ce7dc38`)이라 `main`과 갈라져 있다. `A`에서 추가 지시 4~6(`ParentRunEvidence`, #6 확인, #5 trace_id 주입점)을 처리했다. 앱·라이브러리 빌드와 JVM 테스트 통과. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. Windows 한글 경로에서는 상위 폴더를 임시 드라이브 문자(`subst`)에 연결해 실행한다. SDK는 체크아웃 바깥의 `.android-sdk`를 사용한다.
-- 다음 할 일: 사용자 확인 후 `A`를 최신 `main` 위로 정리(rebase 또는 새 브랜치)하고 푸시·PR. Android 15 AVD에서 N-07 확인(사람 몫) 뒤 단계 6 N-20 구현.
+- 다음 할 일: 사용자 확인 후 `A`를 최신 `main` 위로 정리(rebase 또는 새 브랜치)하고 푸시·PR. Android 15 AVD에서 N-07·N-20 실동작 확인(사람 몫), N-19→N-20 호출부 연결.
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경.
 - 막힌 것: `A`와 `main` 정리 방식 승인, N-07 Android 15 실동작 확인, `trace_id` 발급 주체 답변(D).
 
