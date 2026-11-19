@@ -70,9 +70,10 @@ def _node_response(result, *, extra: Mapping | None = None) -> JSONResponse:
     return JSONResponse(content=body)
 
 
-def create_app(config: ServerConfig) -> FastAPI:
-    hub = SessionHub(catalog=config.catalog, approved_slots=config.approved_slots,
-                     pairs=config.authenticator, pairing=config.pairing, source=config.source)
+def create_app(config: ServerConfig, *, hub: SessionHub | None = None) -> FastAPI:
+    if hub is None:
+        hub = SessionHub(catalog=config.catalog, approved_slots=config.approved_slots,
+                         pairs=config.authenticator, pairing=config.pairing, source=config.source)
     app = FastAPI(title="Hyojason control server", version="0.1.0")
     app.state.hub = hub
 

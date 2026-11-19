@@ -109,7 +109,11 @@ def _consent(pair_id: str) -> ConsentState:
 
 
 def _publish(event: Event, trace_id: str) -> None:
-    OUTBOX.append((trace_id, event))
+    receiver = getattr(app.state, "call_event_receiver", None)
+    if receiver is None:
+        OUTBOX.append((trace_id, event))
+    else:
+        receiver(event, trace_id)
 
 
 def _ended(call, role: Role | None) -> None:
@@ -198,14 +202,19 @@ async def consent(body: ConsentBody, authorization: str | None = Header(None)):
     # 철회 뒤 도착하는 확정문은 N-06이 최신 동의와 대조해 버린다
     call = calls.get(body.call_id) if body.call_id else None
     tid = call.trace_id if call and call.pair_id == x_pair_id else new_id("trace")  # 통화 중 철회도 같은 추적으로
-    return _reply(resolve_consent(upd, actor, _consent(x_pair_id), trace_id=tid))
+    reply = _reply(resolve_consent(upd, actor, _consent(x_pair_id), trace_id=tid))
+    receiver = getattr(app.state, "consent_receiver", None)
+    if receiver is not None:
+        receiver(actor, body.enabled)
+    return reply
 
 
 # ---- N-03 ----
 
 
 def _transition(
-    op: Operation, actor: ActorContext, call_id: str | None = None, reason: CallEndReason = CallEndReason.HANGUP
+    op: Operation, actor: ActorContext, call_id: str | None = None, reason: CallEndReason = CallEndReason.HANGUP,
+    *, assisted_role: Role = Role.PARENT,
 ) -> NodeResult:
     """N-03 한 번 + 그에 따른 이벤트 발행·worker 시작. HTTP 핸들러와 worker 콜백이 같이 쓴다."""
     for c in calls.expire():  # 수락·참가 시간 초과
@@ -219,7 +228,9 @@ def _transition(
         return result
     v, tid = result.data, result.diagnostics.trace_id
     if op is Operation.START:
-        _publish(call_event("call.invite", actor.pair_id, v.call_id, actor.role), tid)
+        event = call_event("call.invite", actor.pair_id, v.call_id, actor.role)
+        event.payload["assisted_role"] = assisted_role.value
+        _publish(event, tid)
     elif op is Operation.ACCEPT:
         _publish(call_event("call.accepted", actor.pair_id, v.call_id, actor.role), tid)
         _start_worker(calls.get(v.call_id))
@@ -285,9 +296,14 @@ def _start_worker(call) -> None:
     workers[call.call_id] = asyncio.create_task(run())
 
 
+class StartCallBody(BaseModel):
+    assisted_role: Role = Role.PARENT
+
+
 @app.post("/v1/calls")
-async def start_call(authorization: str | None = Header(None)):
-    return _call_op(Operation.START, _actor(authorization))
+async def start_call(body: StartCallBody | None = None, authorization: str | None = Header(None)):
+    assisted = body.assisted_role if body is not None else Role.PARENT
+    return _reply(_transition(Operation.START, _actor(authorization), assisted_role=assisted))
 
 
 @app.post("/v1/calls/{call_id}/accept")

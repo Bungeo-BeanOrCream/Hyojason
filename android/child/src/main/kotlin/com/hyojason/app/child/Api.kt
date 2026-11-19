@@ -85,8 +85,9 @@ class Api(private val s: Store) {
         return Result.failure(IllegalStateException("STALE_BASIS"))
     }
 
-    suspend fun startCall(): Result<String> =
-        call("POST", "/v1/calls").map { JSONObject(it).getJSONObject("data").getString("call_id") }
+    suspend fun startCall(assistedRole: Role): Result<String> =
+        call("POST", "/v1/calls", JSONObject().put("assisted_role", assistedRole.name))
+            .map { JSONObject(it).getJSONObject("data").getString("call_id") }
 
     suspend fun accept(callId: String): Result<Unit> = call("POST", "/v1/calls/$callId/accept").map { }
 

@@ -30,7 +30,7 @@ class KoreanTextScan : AutoCloseable {
             screen.anchors.flatten() + screen.targets.values.flatMap { rule ->
                 rule.aliases + listOfNotNull(rule.rowMarker) + rule.requiredFeatures
             }
-        }.filter { it.kind == FeatureKind.TEXT }.associateBy { it.value }
+        }.filter { it.kind == FeatureKind.TEXT }.distinct().groupBy { normalized(it.value) }
         val buffer = pixels.copyArgb()
         val image = try {
             Bitmap.createBitmap(buffer, pixels.width, pixels.height, Bitmap.Config.ARGB_8888)
@@ -49,7 +49,7 @@ class KoreanTextScan : AutoCloseable {
                 if (!result.isSuccessful) failed()
                 else {
                     val matches = result.result.textBlocks.flatMap { block -> block.lines }.mapNotNull { line ->
-                        val key = allowed[line.text.trim()] ?: return@mapNotNull null
+                        val key = allowed[normalized(line.text)]?.singleOrNull() ?: return@mapNotNull null
                         val bounds = line.boundingBox ?: return@mapNotNull null
                         if (bounds.isEmpty || bounds.left < 0 || bounds.top < 0 ||
                             bounds.right > pixels.width || bounds.bottom > pixels.height
@@ -69,6 +69,8 @@ class KoreanTextScan : AutoCloseable {
     }
 
     override fun close() = recognizer.close()
+
+    private fun normalized(text: String) = text.filterNot(Char::isWhitespace)
 
     private fun failed() = FeatureScan(FeatureKind.TEXT, false, emptyList())
 }
