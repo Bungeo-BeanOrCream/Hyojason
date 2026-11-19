@@ -13,6 +13,19 @@
 | 실제 AVD에서 무엇을 검증할지 확인 | [지원 목표·시연·검증](scenarios.md) |
 | 권한, 오디오, 모델 실행의 검증 근거 확인 | [기술 근거와 미검증 항목](references.md) |
 
+## 팀원 4인 작업 배분
+
+실명 확정 전까지 A–D를 사용한다. 각 행의 담당자는 해당 Small Node의 구현과 팀에 넘길 결과를 책임진다.
+
+| 담당 | Big Node | 담당 Small Node | 팀에 넘길 첫 결과 |
+|---|---|---|---|
+| **A · Android 화면 관찰·Overlay** | [B-03 화면 관찰](big-nodes/B-03.md) · [B-06 부모 안내](big-nodes/B-06.md) | [N-07](small-nodes/N-07.md) · [N-08](small-nodes/N-08.md) · [N-09](small-nodes/N-09.md) · [N-10](small-nodes/N-10.md) · [N-19](small-nodes/N-19.md) · [N-20](small-nodes/N-20.md) | 설정·시계의 실제 화면에서 버튼을 찾아 빨간 테두리를 표시하고, 테두리 아래 버튼이 눌리는 것을 확인한다. |
+| **B · LiveKit 통화·한국어 음성 인식** | [B-01 가족 연결·통화](big-nodes/B-01.md) · [B-02 발화 확정](big-nodes/B-02.md) | [N-01](small-nodes/N-01.md) · [N-02](small-nodes/N-02.md) · [N-03](small-nodes/N-03.md) · [N-04](small-nodes/N-04.md) · [N-05](small-nodes/N-05.md) · [N-06](small-nodes/N-06.md) | 부모님 AVD에서 발신하고 자녀 AVD에서 받는다. 앱 전환 중에도 양방향 음성을 유지하고, 발화자별 확정 문장을 서버에 전달한다. |
+| **C · Zoro-1 판단·GPU 운영** | [B-05 System 1 판단](big-nodes/B-05.md) · [B-08 중 모델·GPU 운영](big-nodes/B-08.md) | [N-14](small-nodes/N-14.md) · [N-15](small-nodes/N-15.md) · [N-16](small-nodes/N-16.md) · [N-17](small-nodes/N-17.md) · [N-18](small-nodes/N-18.md) · [N-26](small-nodes/N-26.md) | L40S의 실제 Zoro-1로 목표, 목표 변경, 다음 행동, 도착 여부 등 네 판단을 실행하고 모델 버전·비용을 기록한다. |
+| **D · 도움 상태·완료·통합 검증** | [B-04 상태·이력](big-nodes/B-04.md) · [B-07 역할별 상태·종료](big-nodes/B-07.md) · [B-08 중 환경·전체 검증](big-nodes/B-08.md) | [N-11](small-nodes/N-11.md) · [N-12](small-nodes/N-12.md) · [N-13](small-nodes/N-13.md) · [N-21](small-nodes/N-21.md) · [N-22](small-nodes/N-22.md) · [N-23](small-nodes/N-23.md) · [N-24](small-nodes/N-24.md) · [N-25](small-nodes/N-25.md) | 같은 도움 세션에서 목표 변경과 통화 종료를 처리하고, 자녀가 도움 완료를 누를 때 양쪽 상태와 이력이 정리되는지 통합 검증한다. |
+
+B-08은 D가 전체 리허설을 맡고 C가 모델·GPU 환경을 맡는다. A는 부모 화면, B는 자녀 화면의 완료 처리를 D와 연동한다. 착수 순서와 시간별 통과 기준은 [작업 배분과 일정](work-plan.md)을 따른다.
+
 ## 제품 기준
 
 - 부모님 AVD가 자녀 AVD에 먼저 전화한다. 두 역할은 같은 네이티브 Android 앱에서 분리한다. LiveKit은 양방향 음성 전송을 맡는다.
