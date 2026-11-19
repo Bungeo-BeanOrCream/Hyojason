@@ -14,7 +14,7 @@
 | [N-23 purge_help_and_restart](../small-nodes/N-23.md) | 서버 로직 + 클라이언트 참조 구현 + N-11 `help.purge` 효과로 모든 종료에 연동, FIXTURE 테스트 통과. 실기기 UNVERIFIED | `tests/test_n23_purge_help_and_restart.py` (23.1~23.5 + 완료 기준), `test_session_completion.py` |
 | B-07 흐름 (N-22→N-11→N-23→N-13) | 실제 N-11(`SessionControl`) 위에서 확인. 제어 서버 경로로도 확인(`test_control_server.py`) | `tests/test_session_completion.py`, 격리판 `tests/test_b07_integration.py` (B07.1~B07.4) |
 | 제어 서버 (FastAPI, `hyojason_session/api`) | 뼈대 구현: `WS /v1/events`, `GET /v1/help/current`, 페어·통화 경로(MOCK), 서버 내부 경로. 실제 uvicorn으로 기동·WS 왕복 확인. 결과는 FIXTURE | `tests/test_control_server.py` |
-| [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현. FIXTURE 검증 | `tests/test_n24_prepare_demo_fixtures.py` |
+| [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현(Codex). 실제 AVD 상태 수집·설정 기록/원복·AVD 생성 안내 도구(`demo_env`) 추가. 가짜 adb로만 검증, 실제 AVD 미확인 | `tests/test_n24_prepare_demo_fixtures.py`, `test_n24_demo_env.py` |
 | [N-25 evaluate_end_to_end](../small-nodes/N-25.md) | 지정 표본의 증거·출처·판정 및 모델·비용 보고 구현. FIXTURE 검증 | `tests/test_n25_evaluate_end_to_end.py` · [실행 방법](../../demo/fixtures/README.md) |
 
 테스트: `cd server/session && python -m pytest` (Python 3.11+, pytest). 결과는 모두 source=FIXTURE이며 라이브 성공으로 세지 않는다.
@@ -80,7 +80,8 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 4. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
 5. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
 6. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
-7. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
+7. **시연 AVD 준비 (N-24)**: 시연 기계를 정하고(설계 기준 ARM64 Mac, 이 PC는 x86_64 Windows·Android SDK 없음) `demo_env avd-plan` 명령으로 두 AVD 생성 → `collect`로 로컬 매니페스트 → 사람 확인 항목 채우기 → `demo_verify prepare --source LIVE`. 효자손 APK(A·B)가 나오기 전에는 `ROLE_APP_NOT_READY`로 막힌다.
+8. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
 
 ## 하면 안 되는 일
 
@@ -94,6 +95,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
+- 시연 기계 미정: 설계는 ARM64 Mac AVD 두 대. 이 PC(x86_64 Windows)에는 Android SDK가 없고, 쓰려면 SDK·시스템 이미지 다운로드가 필요하다.
 - 이슈 #6: 지원 대상 방식·완료 권한·자녀 발신·Basis는 팀 합의 대기 (A·B는 의견 남김, C 대기).
 - 이슈 #10: 엔드포인트 분담에 대한 B 동의, B 판단 함수 위치, 인증 토큰 형식 답변 대기. 그 전에는 페어·통화 자리에 Mock.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
