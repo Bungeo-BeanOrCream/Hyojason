@@ -84,6 +84,7 @@
 - 현재 상태: 골격 PR #7(`A-gradle-skeleton`, e32106f 포함)과 #8·#9는 `main`에 머지됐다. 로컬 `A`는 머지 전 기준(merge-base `ce7dc38`)이라 `main`과 갈라져 있다. `A`에서 추가 지시 4~6(`ParentRunEvidence`, #6 확인, #5 trace_id 주입점)을 처리했다. 앱·라이브러리 빌드와 JVM 테스트 통과. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. Windows 한글 경로에서는 상위 폴더를 임시 드라이브 문자(`subst`)에 연결해 실행한다. SDK는 체크아웃 바깥의 `.android-sdk`를 사용한다.
 - 갱신(2026-11-19): `A-rebased`(origin/main c3f3a84 위)에서 N-19→N-20 호출부 `ParentGuideFlow`를 구현했다(9e8549c 및 후속 테스트). 오버레이 JVM 테스트와 `:app:assembleDebug` 통과. 에뮬레이터 결과는 모두 `UNVERIFIED`다.
+- 갱신(2026-11-19): B-03 Big Node 합성 `ObservationFlow`(N-08→N-09→N-10)와 `ObservationFlowTest` 4건(B03.1~B03.4) 통과. 관찰 4개 테스트 파일 26건, 오버레이 28건, `:app:assembleDebug` 통과(모두 FIXTURE). 안드로이드 연결(프레임 변환·비동기 OCR 대기)은 통합 앱 쪽 몫이며 방법은 [A-emulator-verification.md](A-emulator-verification.md) 1절에 적었다.
 - 다음 할 일: 사람이 Mac에서 36.1 에뮬레이터로 확인한다. 항목과 검증 후 작업은 [A-emulator-verification.md](A-emulator-verification.md). 확인 후 사용자 확인을 받아 푸시·PR(Big Node별).
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경, 에뮬레이터 항목의 에이전트 단독 PASS 선언, 36.1 결과를 Android 15로 기록.
 - 막힌 것: 에뮬레이터 확인(사람), `A`/`A-rebased`와 `main` 정리 방식 승인, `trace_id` 발급 주체 답변(D), N-22 연결의 B/D 협의. claude-mem 로그인 만료(`/login` 필요).

@@ -7,8 +7,13 @@
 ## 1. 에뮬레이터 없이 끝난 것 (JVM 테스트 통과)
 
 - B-03: N-07 세션·epoch·STALE_BASIS(`ProjectionSessionTest`), N-08/N-09/N-10 탐지·안정화(`FrameDetectionTest`, `ScreenStabilizerTest`).
+- B-03 Big Node 합성 `ObservationFlow`(N-08→N-09→N-10, `ObservationFlowTest` 4건: B03.1 스크롤은 layout만 갱신, B03.2 구 epoch STALE_BASIS·픽셀 폐기, B03.3 보호 화면·탐지 실패는 gap, B03.4 오버레이 마스크는 증거 제외). 프레임은 호출이 끝나기 전에 항상 닫힌다.
 - B-06: N-19 게이트(`GuideGateTest`), N-20 표시 판단(`ParentSurfacesTest` 20.1~20.5), N-19→N-20 호출부 `ParentGuideFlow`(`ParentGuideFlowTest` 6건: B06.1~B06.3, 정책 거부, 구 epoch·help_id 폐기).
 - 위 통과는 `source=FIXTURE`다. 라이브 성공으로 세지 않는다.
+- 통합 앱에서 이어 붙일 곳(합성 코드는 순수 Kotlin이라 안드로이드 연결은 호출하는 쪽 몫):
+  1. `ProjectionFrames.take()`의 `CapturedPixels`를 `CaptureFrame`으로 만든다(bounds·viewport·회전·`overlay_masks`·`FrameSafety`는 호출부가 채운다).
+  2. `ObservationFlow`의 `scan` 람다가 비동기 `KoreanTextScan`을 워커 스레드에서 기다려 동기로 `List<FeatureScan>`을 돌려준다. 직렬 루프 하나에서만 호출한다(스레드 안전하지 않음).
+  3. B-06 입력: `ObservationOutcome.stabilization.local` → `GateInput.local_observation`, `screenToPublish` → 서버로 보내는 `ScreenState`(유일한 외부 전송물).
 - 일부러 만들지 않은 것: "도움 종료" 하나로 캡처 중지·표시·타이머·제안을 묶는 진입점(#6 합의 전), 끄기/통화로 → N-22 연결(B/D 경로).
 
 ## 2. Mac 준비
