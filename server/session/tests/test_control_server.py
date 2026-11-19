@@ -216,10 +216,13 @@ def test_parent_stop_ends_help_and_blocks_new_turn_until_reconsent(call):
 def test_rest_auth_and_role_errors(client):
     assert client.post("/v1/calls").status_code == 401
     assert client.post("/v1/calls", headers={"Authorization": "Bearer nope"}).status_code == 401
-    assert client.post("/v1/calls", headers=CHILD_H).json()["error"]["code"] == "FORBIDDEN"
     call_id = client.post("/v1/calls", headers=PARENT_H).json()["call_id"]
     assert client.post("/v1/calls", headers=PARENT_H).json()["error"] == {
         "code": "CONFLICT", "node_code": "CALL_ALREADY_OPEN"}
+    assert client.post("/v1/calls", headers=CHILD_H).json()["error"]["node_code"] == "CALL_ALREADY_OPEN"
+    # 건 쪽은 자기 통화를 수락할 수 없다 (발신은 양쪽, 수락은 상대만 — #6·#10)
+    assert client.post(f"/v1/calls/{call_id}/accept", headers=PARENT_H).json()["error"] == {
+        "code": "FORBIDDEN", "node_code": "UNAUTHORIZED"}
     assert client.post(f"/v1/calls/{call_id}/accept", headers=OTHER_H).status_code == 403
     assert client.post("/v1/calls/call-missing/accept", headers=CHILD_H).status_code == 404
     rtc = client.post(f"/v1/calls/{call_id}/rtc-token", headers=CHILD_H).json()

@@ -37,6 +37,21 @@ uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 
 앱 인증은 `Authorization: Bearer <token>`(**MOCK** B-01). WS 메시지 형식은 [계약 추가 제안 7장](../../docs/work/D-role-view-contract.md).
 
+### B 음성 서비스 연결 (#10)
+
+`HYOJASON_VOICE=service`면 B의 판단 함수(`server/voice`의 `hyojason_voice.service`, PR #24)가 인증·페어·동의·통화를 맡고, D는 라우트와 도움 세션을 맡는다.
+
+```bash
+cd server/session
+PYTHONPATH=../..:../voice HYOJASON_VOICE=service HYOJASON_AGENT=fixture \
+  uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
+```
+
+- 통화 ID는 B가 만든다. B가 `call.invite`를 보내면 D가 같은 `call_id`·`trace_id`로 도움 세션을 등록하고(`SessionHub.register_call`), 이후 `call.accepted/connected/ended`·`speech.final`을 같은 통화에 적용한다(`on_voice_event`).
+- 동의는 앱이 `POST /v1/consent`(B N-02)로 보내고, D가 진행 중 통화의 N-11에 맞춘다. 이 모드에서는 WS `consent.updated`를 받지 않는다.
+- 발신은 부모·자녀 모두, 수락은 건 쪽의 상대만 한다(#6·#10). 수락만으로는 연결이 아니고, 양쪽이 LiveKit 방에 들어오면 B가 `call.connected`를 낸다(키 없이 시험할 때 `POST /v1/dev/calls/{id}/joined`).
+- B 경로(페어·동의·dev)의 오류는 B 앱이 쓰던 `{"detail": 코드}`와 같은 HTTP 상태다.
+
 ### B-05(C 판단) 연결
 
 `HYOJASON_AGENT`로 켠다. C 코드(`server/agent`)를 import하므로 저장소 루트를 `PYTHONPATH`에 넣는다.

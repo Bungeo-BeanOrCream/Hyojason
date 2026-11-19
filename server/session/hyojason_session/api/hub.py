@@ -105,6 +105,8 @@ class SessionHub:
         self._agent = agent
         self._lock = threading.RLock()
         self._calls: dict[str, SessionControl] = {}
+        self._call_traces: dict[str, str] = {}  # call_id → 처음 trace_id (B 재등록 확인용)
+        self._pending_assisted: dict[str, Role] = {}  # B 발신 중인 페어의 첫 도움 지원 대상
         self._pair_calls: dict[str, list[str]] = {}
         self._ledgers: dict[str, CompletionLedger] = {}
         self._tombstones: dict[str, TombstoneRegistry] = {}
@@ -176,41 +178,144 @@ class SessionHub:
         return control
 
     def create_call(self, actor: ActorContext, assisted_role: Role = Role.PARENT) -> SessionControl:
-        """부모 발신(자녀 발신 P0 여부는 #6 팀 결정). assisted_role은 첫 도움의 지원 대상."""
-        if actor.role is not Role.PARENT:
-            raise WireError("FORBIDDEN", "UNAUTHORIZED")
+        """D가 통화 ID를 발급하는 발신 (MOCK N-03). 부모·자녀 모두 걸 수 있다(#6·#10). assisted_role은 첫 도움의 지원 대상."""
+        return self._open_call(actor.pair_id, new_id("call"), new_id("trace"), actor.role, assisted_role)
+
+    def register_call(self, pair_id: str, call_id: str, trace_id: str, inviter: Role,
+                      assisted_role: Role | None = None) -> SessionControl:
+        """B가 발급한 통화를 같은 call_id·trace_id로 D에 등록한다 (#23 C 제안, #10: B는 통화 ID, D는 도움 세션).
+
+        같은 call_id를 다시 등록하면 페어와 처음 trace_id가 같을 때만 그 통화를 돌려준다(B 재전송).
+        assisted_role을 주지 않으면 발신 경로가 미리 정해 둔 값(start_call), 그것도 없으면 부모다.
+        """
         with self._lock:
-            current = self.current_control(actor.pair_id)
+            existing = self._calls.get(call_id)
+            if existing is not None:
+                if existing.snapshot.pair_id != pair_id or self._call_traces.get(call_id) != trace_id:
+                    raise WireError("CONFLICT", "DUPLICATE")
+                return existing
+            assisted = assisted_role or self._pending_assisted.pop(pair_id, Role.PARENT)
+        return self._open_call(pair_id, call_id, trace_id, Role(inviter), assisted)
+
+    def _open_call(self, pair: str, call_id: str, trace_id: str, inviter: Role,
+                   assisted_role: Role) -> SessionControl:
+        with self._lock:
+            current = self.current_control(pair)
             if current is not None and current.snapshot.call_state != "ENDED":
                 raise WireError("CONFLICT", "CALL_ALREADY_OPEN")
-            pair = actor.pair_id
             stores = list(self._result_stores())
             if self._agent is not None:
                 stores.append(self._agent.results)  # N-23이 도움 종료 때 B-05 기록도 지운다
             control = SessionControl(
-                pair, new_id("call"), new_id("help"), catalog=self._catalog, approved_slots=self._slots,
+                pair, call_id, new_id("help"), catalog=self._catalog, approved_slots=self._slots,
                 source=self._source.value, events=_PairSink(self, pair), ledger=self._ledger_of(pair),
                 tombstones=self.tombstones_of(pair), result_stores=stores,
-                trace_id=new_id("trace"), assisted_role=assisted_role,
+                trace_id=trace_id, assisted_role=assisted_role,
             )
-            call_id = control.snapshot.call_id
             self._calls[call_id] = control
+            self._call_traces[call_id] = trace_id
             self._pair_calls.setdefault(pair, []).append(call_id)
-        update = self._apply_or_raise(control, "call.invite", "PARENT", dispatch=False)
+        update = self._apply_or_raise(control, "call.invite", inviter.value, dispatch=False)
         s = control.snapshot
-        # 자녀 앱은 수신 알림을 먼저 받고, 그 뒤 역할 화면을 받는다
-        self.deliver(pair, Role.CHILD, wire.control_event("call.invite", pair, s.call_id, s.help_id, {}))
+        # 받는 쪽 앱은 수신 알림을 먼저 받고, 그 뒤 역할 화면을 받는다
+        callee = Role.CHILD if inviter is Role.PARENT else Role.PARENT
+        self.deliver(pair, callee, wire.control_event("call.invite", pair, s.call_id, s.help_id, {}))
         self._dispatch(control, update)
+        self.sync_consent(pair)  # 통화 전에 B(N-02)에서 받은 동의를 이 통화의 N-11에 반영
         return control
 
     def accept_call(self, actor: ActorContext, call_id: str) -> SessionControl:
+        """수락은 건 쪽의 상대만 (N-11이 확인한다)."""
         control = self.control_for(call_id, actor)
-        if actor.role is not Role.CHILD:
-            raise WireError("FORBIDDEN", "UNAUTHORIZED")
-        self._apply_or_raise(control, "call.accepted", "CHILD")
+        self._apply_or_raise(control, "call.accepted", actor.role.value)
         if self._pairing.rtc_connected_on_accept():  # MOCK N-03: LiveKit 참가 확인 대신
             self._apply_or_raise(control, "call.connected", "SERVER")
         return control
+
+    # --- B 음성 서비스 (#10: B는 판단 함수, D는 라우트·도움 세션) ----------------------
+    @property
+    def voice_backed(self) -> bool:
+        """B의 service가 통화·동의를 맡는지. 아니면 MOCK(MockPairingService)이고 D가 통화 ID를 발급한다."""
+        return hasattr(self._pairing, "start_call")
+
+    def start_call(self, actor: ActorContext, assisted_role: Role = Role.PARENT) -> tuple[SessionControl, object]:
+        """POST /v1/calls → (통화, B N-03 결과 또는 None).
+
+        B가 있으면 B가 call_id·trace_id를 만들고 call.invite를 보내 register_call로 등록된다.
+        """
+        if not self.voice_backed:
+            return self.create_call(actor, assisted_role), None
+        with self._lock:
+            self._pending_assisted[actor.pair_id] = assisted_role
+        try:
+            result = self._pairing.start_call(actor)
+        finally:
+            with self._lock:
+                self._pending_assisted.pop(actor.pair_id, None)
+        return self.control_for(result.data.call_id, actor), result
+
+    def accept(self, actor: ActorContext, call_id: str) -> tuple[SessionControl, object]:
+        """POST /v1/calls/{id}/accept. B가 있으면 B N-03이 수락을 판단하고 call.accepted로 알려 온다."""
+        if not self.voice_backed:
+            return self.accept_call(actor, call_id), None
+        self.control_for(call_id, actor)
+        result = self._pairing.accept_call(actor, call_id)
+        return self.control_for(call_id, actor), result
+
+    def end_call(self, actor: ActorContext, call_id: str) -> tuple[SessionControl, object]:
+        """POST /v1/calls/{id}/end. B가 있으면 B N-03 → call.ended, 없으면 MOCK으로 바로 call.ended."""
+        control = self.control_for(call_id, actor)
+        if self.voice_backed:
+            return control, self._pairing.end_call(actor, call_id)
+        if control.snapshot.call_state != "ENDED":
+            self._apply_or_raise(control, "call.ended", "SERVER")
+        return control, None
+
+    def current_call(self, actor: ActorContext) -> dict | None:
+        """GET /v1/calls/current (B 앱의 폴링·재연결 복구). B가 있으면 B 값, 없으면 D 통화."""
+        if self.voice_backed:
+            return self._pairing.current_call(actor)
+        control = self.current_control(actor.pair_id)
+        if control is None or control.snapshot.call_state == "ENDED":
+            return None
+        s = control.snapshot
+        return {"call_id": s.call_id, "call_state": s.call_state, "help_id": s.help_id}
+
+    def on_voice_event(self, trace_id: str, event: Event) -> NodeResult | None:
+        """B service.set_event_sink 대상: (trace_id, Event)로 오는 call.*·speech.final을 같은 통화에 적용한다.
+
+        B의 통화 처리 중에 불리므로 예외를 올리지 않고 결과(또는 None)만 돌려준다. help_id는 D가 붙인다.
+        """
+        payload = dict(event.payload or {})
+        try:
+            if event.type == "call.invite":
+                control = self.register_call(event.pair_id, event.call_id, trace_id, Role(payload["role"]))
+                return None
+            control = self.control_for(event.call_id)
+            if control.snapshot.pair_id != event.pair_id:
+                return None
+            if event.type == "call.accepted":
+                return self._apply(control, "call.accepted", Role(payload["role"]).value).state
+            if event.type in ("call.connected", "call.ended", "speech.final"):
+                if event.type == "call.ended" and control.snapshot.call_state == "ENDED":
+                    return None
+                return self._apply(control, event.type, "SERVER", payload, event_id=event.event_id).state
+        except (WireError, KeyError, ValueError):
+            return None
+        return None
+
+    def sync_consent(self, pair_id: str) -> None:
+        """B N-02의 역할별 분석 동의를 진행 중 통화의 N-11에 맞춘다. 같은 값이면 N-11이 무시한다.
+
+        MOCK 모드에는 consenting_roles가 없고, 앱이 WS consent.updated로 직접 보낸다.
+        """
+        roles_of = getattr(self._pairing, "consenting_roles", None)
+        control = self.current_control(pair_id)
+        if roles_of is None or control is None or control.snapshot.call_state == "ENDED":
+            return
+        roles = roles_of(pair_id)
+        for role in (Role.PARENT, Role.CHILD):
+            self._apply(control, "consent.updated", role.value, {"purpose": "analysis", "enabled": role in roles})
 
     # --- 수신 -----------------------------------------------------------------
     def handle_client(self, actor: ActorContext, message: object) -> dict:
@@ -224,6 +329,8 @@ class SessionHub:
             if control is not self.current_control(actor.pair_id):
                 raise WireError("CONFLICT", "STALE_BASIS")  # 지난 통화로 온 이벤트
             wire.check_sender(env, actor, Role(control.snapshot.assisted_role))
+            if env["type"] == "consent.updated" and self.voice_backed:
+                raise WireError("FORBIDDEN", "UNAUTHORIZED")  # B N-02가 동의를 맡는다: POST /v1/consent
             if env["type"] in wire.COMMANDS:
                 if env["help_id"] is None:
                     raise WireError("INVALID_EVENT")
@@ -286,7 +393,13 @@ class SessionHub:
         )
 
     def claim(self, actor: ActorContext) -> dict:
+        """MOCK N-01 승인. B가 있으면 앱 경로가 B의 claim(코드·새 토큰)을 직접 부른다."""
         return self._pairing.claim(actor)
+
+    @property
+    def voice(self):
+        """B 음성 서비스 어댑터 (voice_backed일 때). 페어·동의·웹훅·dev 경로가 쓴다."""
+        return self._pairing
 
     def rtc_token(self, actor: ActorContext, call_id: str) -> dict:
         self.control_for(call_id, actor)

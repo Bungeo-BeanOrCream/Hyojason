@@ -40,11 +40,14 @@ class FakeDecide(BaseHTTPRequestHandler):
             "type": "choice", "choice": criteria[0],
             "probabilities": {c: 0.95 if i == 0 else rest for i, c in enumerate(criteria)}}}}
         data = json.dumps(answer).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        except ConnectionError:  # 마감을 넘겨 호출 쪽이 먼저 끊은 경우
+            pass
 
     def log_message(self, *args):  # 요청 내용을 콘솔에 남기지 않는다
         pass

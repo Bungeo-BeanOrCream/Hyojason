@@ -96,10 +96,12 @@ trace_id는 서버가 발급한다(D-status 결정 메모 6). 이를 앱과 주�
 | 서버 → 앱 | `event.ack` {event_id, outcome} / `event.rejected` {event_id, code, node_code} | 앱이 보낸 이벤트마다 하나. code는 FORBIDDEN·INVALID_EVENT·NOT_FOUND·CONFLICT (implementation-contract) |
 | 서버 → 앱 | `help.view` {role, pair_id, call_id, help_id, parent_view, child_view} | 상태가 바뀔 때마다 N-21 역할 화면 (B-07 정책 1). 재접속은 `GET /v1/help/current` |
 | 서버 → 부모 | N-11 효과: `instruction.accepted`, `instruction.cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `guide.suspend`, `observation.stop`, `audio.evaluate` | payload에 해당 값과 `basis`(식별자·버전뿐) |
-| 서버 → 자녀 | `call.invite`, `help.view`, `arrival.suspected`, `arrival.revoked`, `help.ended` | 이 다섯 가지 밖의 이벤트는 자녀에게 보내지 않는다 |
+| 서버 → 지원 대상 | B-05 결과: `target.located` {location_kind, target_id, anchor_screen_revision, evidence_codes, model_revision, basis} · `action.assessed` {verdict, instruction_revision, from_screen_revision, to_screen_revision, evidence_codes, model_revision, basis} · `recovery.ready` {instruction_revision, anchor_screen_revision, first_edge_ref, path_distance, basis} · `guide.proposed` {decision_id, mode, action, target_id, message_key, confidence, valid_for_ms, basis} | contracts.md 이벤트 표의 이름 그대로(`assist.decision` 같은 묶음 이벤트는 쓰지 않는다). target.located·action.assessed는 N-11이 받아들인 것만, 나머지는 판단 범위가 최신일 때만 간다. 표시 여부는 부모 앱(N-19)이 `basis`로 다시 확인한다 |
+| 서버 → 자녀 | `call.invite`, `help.view`, `arrival.suspected`, `arrival.revoked`, `help.ended` | 이 다섯 가지 밖의 이벤트는 자녀에게 보내지 않는다 (지원 대상이 부모일 때. `call.invite`는 받는 쪽에게) |
 | 양방향 | `ping` {event_id} → `pong` {event_id} | 연결 확인. 앞서 보낸 메시지가 모두 나간 뒤 온다 |
 
-REST 오류는 `{"error": {"code", "node_code"}}`이고, 토큰이 없거나 틀리면 401 UNAUTHENTICATED다.
+REST 오류는 `{"error": {"code", "node_code"}}`이고, 토큰이 없거나 틀리면 401 UNAUTHENTICATED다. B 판단 함수 경로(페어·동의·dev, B 모드의 통화 결과)는 B 앱이 쓰던 `{"detail": 코드}` 모양이다(#10).
+B 모드(`HYOJASON_VOICE=service`)에서는 앱이 동의를 `POST /v1/consent`로 보내고 WS `consent.updated`는 거절한다.
 
 확인 요청: A(부모 앱 수신 처리), B(자녀 앱 수신 처리·`call.invite` 뒤 `POST /v1/calls/{id}/accept`).
 
