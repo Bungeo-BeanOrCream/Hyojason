@@ -27,7 +27,7 @@
 | [N-21 · project_role_view](N-21.md) | [B-07](../big-nodes/B-07.md) | D · 서버, B 자녀 UI | 부모 상태와 자녀의 통화·도착·완료만 각각 투영한다. |
 | [N-22 · resolve_arrival_or_completion](N-22.md) | [B-07](../big-nodes/B-07.md) | D · 제어 서버 | 도착 추정과 자녀 최종 완료, 부모 안내 끄기를 독립적으로 처리한다. |
 | [N-23 · purge_help_and_restart](N-23.md) | [B-07](../big-nodes/B-07.md) | D · 서버, A·B 클라이언트 | 끝난 도움의 관찰과 데이터를 지우고 새 도움은 빈 상태에서 연다. |
-| [N-24 · prepare_demo_fixtures](N-24.md) | [B-08](../big-nodes/B-08.md) | D · AVD/자료 | 외부 네트워크와 기기 환경을 포함하여 5개 목표를 재현할 테스트 조건을 고정한다. |
+| [N-24 · prepare_demo_fixtures](N-24.md) | [B-08](../big-nodes/B-08.md) | D · AVD/자료 | 외부 네트워크와 기기 환경을 포함해 앱 5개의 목표 6개를 재현할 테스트 조건을 고정한다. |
 | [N-25 · evaluate_end_to_end](N-25.md) | [B-08](../big-nodes/B-08.md) | D · 리허설/통합, 전체 협업 | 지시·위치·목표·개입 실험과 LIVE/FIXTURE 기록을 판정한다. |
 | [N-26 · track_model_runtime_and_budget](N-26.md) | [B-08](../big-nodes/B-08.md) | C · GPU·배포 | L40S 시작, 다섯 질문 모델 smoke와 $100 한도를 관리한다. |
 | [N-27 · locate_child_instruction_target](N-27.md) | [B-05](../big-nodes/B-05.md) | C · Agent, A 로컬 매칭 | 자녀 지시 버튼의 실제 후보 및 현재·아래 위치를 확인한다. |
