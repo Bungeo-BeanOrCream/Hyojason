@@ -88,9 +88,10 @@ object GuideGate {
      * The caller applies observations for this tick before evaluating a deadline at the same time.
      * A pending observation stays pending across ticks until the action verdict arrives.
      */
-    fun evaluate(input: GateInput, diagnostic: Diagnostic): NodeResult<GateData> {
+    fun evaluate(input: GateInput, diagnostic: Diagnostic, resumeGate: ParentResumeGate? = null): NodeResult<GateData> {
         val base = diagnostic.copy(node_id = "N-19", basis = input.basis, terminal_error = null)
-        val failure = validate(input)
+        val resumeCheck = resumeGate?.check(input)
+        val failure = validate(input) ?: "STALE_BASIS".takeIf { resumeCheck == ResumeCheck.STALE }
         if (failure != null) {
             return NodeResult(NodeStatus.ERROR, null, null, base.copy(
                 steps = base.steps + (STEP to StepDiagnostic(StepStatus.FAILED, failure)),
@@ -99,7 +100,11 @@ object GuideGate {
         }
 
         val elapsed = input.t0_mono_ms?.let { input.now_mono_ms - it }
-        val result = decide(input, elapsed)
+        val result = if (resumeCheck == ResumeCheck.WAIT_FOR_OBSERVATION) {
+            GateData(null, elapsed, GateReason.WAITING, cancel_timer = false)
+        } else {
+            decide(input, elapsed)
+        }
         return NodeResult(NodeStatus.SUCCESS, result.reason.outcome, result, base.copy(
             steps = base.steps + (STEP to StepDiagnostic(StepStatus.SUCCESS, null)),
         ))

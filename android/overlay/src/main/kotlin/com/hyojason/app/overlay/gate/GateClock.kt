@@ -44,13 +44,17 @@ class GateClock {
         return true
     }
 
+    internal fun cancelTimer() {
+        stableScreen = null
+        t0_mono_ms = null
+    }
+
     fun clear() {
         helpId = null
         mode = null
         modeRevision = null
         instructionRevision = null
-        stableScreen = null
         seenInstructions.clear()
-        t0_mono_ms = null
+        cancelTimer()
     }
 }
