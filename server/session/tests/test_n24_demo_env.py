@@ -152,3 +152,24 @@ def test_avd_plan_matches_host_architecture(capsys):
     assert host_abi("AMD64") == "x86_64" and host_abi("arm64") == "arm64-v8a"
     assert main(["avd-plan", "--abi", "x86_64"]) == 0
     assert "hyojason-parent" in capsys.readouterr().out
+
+
+def test_mac_setup_script_matches_avd_plan_and_parses():
+    """팀 Mac 스크립트(결정 메모 11)가 avd-plan(arm64)과 같은 이미지·포트·언어·시간대를 쓰는지."""
+    import pathlib
+    import shutil
+    import subprocess
+
+    script = pathlib.Path(__file__).resolve().parents[3] / "demo" / "fixtures" / "setup_avd_mac.sh"
+    text = script.read_text(encoding="utf-8")
+    plan = "\n".join(avd_plan("arm64-v8a"))
+    assert 'IMAGE="system-images;android-${ANDROID_API};google_apis_playstore;arm64-v8a"' in text
+    assert "system-images;android-35;google_apis_playstore;arm64-v8a" in plan and "ANDROID_API=35" in text
+    for needle in ("hyojason-parent", "hyojason-child", "-d pixel_7"):
+        assert needle in text and needle in plan
+    assert 'start_avd hyojason-parent 5554' in text and 'start_avd hyojason-child 5556' in text
+    assert 'LOCALE="ko-KR"' in text and 'TIME_ZONE="Asia/Seoul"' in text
+    assert "demo_env collect --parent emulator-5554 --child emulator-5556" in text
+    bash = shutil.which("bash")
+    if bash:
+        assert subprocess.run([bash, "-n", str(script)], capture_output=True).returncode == 0
