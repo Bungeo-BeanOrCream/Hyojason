@@ -11,7 +11,7 @@
 | 슬롯 | 담당(GitHub) | Big Node | 주 경로 |
 |---|---|---|---|
 | A | Nonmaju | B-03 화면 관찰, B-06 부모 안내 | `android/observer`, `android/overlay` |
-| B | Bellashin | B-01 연결·통화, B-02 발화 | `android/rtc`, `android/child` |
+| B | Bellashin | B-01 연결·통화, B-02 발화 | `android/rtc`, `android/child`, `server/voice` |
 | C | Jungminii-1114 | B-05 판단, B-08 모델·GPU | `server/agent` |
 | D | wnddnr0914 | B-04 도움 상태, B-07 피드백·종료, B-08 통합 | `server/session`, `demo/fixtures` |
 
@@ -67,3 +67,4 @@
 - #3 screen_kind 값 목록·의미 전이·target_id 안정성 (A↔D)
 - #5 N-24·N-25 라이브 리허설 증거 연동 (B-08)
 - #6 통화 발신 방향과 안내 대상(`assisted_role`) 분리
+- #10 세션 서버 엔드포인트 B↔D 분담·`server/voice` 경로·인증 토큰
