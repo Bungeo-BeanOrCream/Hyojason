@@ -284,5 +284,15 @@ def test_worker_passes_only_final_and_locks_consent_revision():
 
     hooks = CallHooks(lambda r: None, lambda r: None, lambda: OK.__class__(True, True, True, True, rev[0]),
                       lambda *a: finals.append(a))
-    asyncio.run(_recognize(Role.CHILD, "c1", fake(), hooks))
+    import itertools
+
+    turns = itertools.count(1)
+    asyncio.run(_recognize(Role.CHILD, "c1", fake(), hooks, turns))
     assert [(f[0], f[1], f[2], f[3], f[5]) for f in finals] == [(Role.CHILD, "CHILD-1", 1, "디스플레이 눌러 줘", 5)]
+
+    # RTZR가 끊겨 스트림을 새로 열어도 번호가 이어진다 → N-06이 중복·역순으로 버리지 않는다
+    async def after_restart():
+        yield ev(lkstt.SpeechEventType.FINAL_TRANSCRIPT, "와이파이 켜 줘")
+
+    asyncio.run(_recognize(Role.CHILD, "c1", after_restart(), hooks, turns))
+    assert [(f[1], f[2]) for f in finals][-1] == ("CHILD-3", 3)

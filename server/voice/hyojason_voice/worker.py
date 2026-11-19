@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import itertools
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from hyojason_session.common.enums import Role
@@ -36,6 +37,7 @@ log = logging.getLogger("hyojason.worker")
 
 WORKER_IDENTITY = "stt-worker"
 STT_DEADLINE_MS = 3000
+STT_RESTART_S = 5.0  # RTZR 스트림이 죽은 뒤 다시 여는 최소 간격 (인증 실패 등에서 재연결 폭주 방지)
 REQUIRED_ENV = ("LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "RTZR_CLIENT_ID", "RTZR_CLIENT_SECRET")
 # RTZR 키워드 부스팅: sommers_ko 스트리밍 전용, 한글·공백만, 100개·20자 이하. 숫자는 "여섯 시"처럼 쓴다.
 # ponytail: 시연 지시어 초안. C의 지시 목록이 오면 늘린다.
@@ -70,8 +72,11 @@ def _worker_token(call_id: str) -> str:
     return lk.AccessToken().with_identity(WORKER_IDENTITY).with_grants(grants).to_jwt()  # 키는 환경변수
 
 
-async def _recognize(role: Role, call_id: str, stream, hooks: CallHooks) -> None:
-    """RTZR 이벤트 → SttEvent → N-05 → (확정·신뢰 높음만) hooks.final."""
+async def _recognize(role: Role, call_id: str, stream, hooks: CallHooks, turns: Iterator[int]) -> None:
+    """RTZR 이벤트 → SttEvent → N-05 → (확정·신뢰 높음만) hooks.final.
+
+    turns는 트랙 하나에 하나. 스트림을 새로 열어도 번호가 이어져야 N-06이 중복·역순으로 버리지 않는다.
+    """
     turn = 0
     locked_rev: int | None = None  # 발화의 첫 이벤트에서 잠근 동의 버전 (N-06이 대조)
     try:
@@ -86,7 +91,7 @@ async def _recognize(role: Role, call_id: str, stream, hooks: CallHooks) -> None
                 locked_rev = hooks.consent().consent_revision
             if kind is SttKind.PARTIAL:
                 continue  # 부분 인식은 다음 노드로 보내지 않는다
-            turn += 1
+            turn = next(turns)
             text = ev.alternatives[0].text if ev.alternatives else None
             # RTZR 스트리밍은 confidence를 주지 않는다 → None (N-05 MIN_CONFIDENCE 판정이 안 걸림)
             req = TurnRequest(f"{call_id}/{role.value}", role, call_id, f"{role.value}-{turn}", STT_DEADLINE_MS)
@@ -116,8 +121,8 @@ async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = 
         return parsed[1] if parsed and parsed[0] == pair_id else None  # 다른 페어·모르는 참가자 무시
 
     async def pump(track: rtc.Track, pub: rtc.RemoteTrackPublication, who: rtc.RemoteParticipant, role: Role):
-        stream = engine.stream()
-        tasks.append(asyncio.create_task(_recognize(role, call_id, stream, hooks)))
+        turns = itertools.count(1)
+        stream, rec, opened = None, None, -STT_RESTART_S
         seq = 0
         async for fe in rtc.AudioStream(track):
             chunk = AudioChunk(call_id, track.sid, who.identity, _SOURCE.get(pub.source, SourceKind.UNKNOWN),
@@ -127,8 +132,18 @@ async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = 
             if r.outcome not in ("audio_ready", "audio_gap"):
                 continue  # 동의 없음·영상·중복 트랙·종료 후 → STT로 보내지 않는다
             ingest.drain(role)  # 큐는 N-04 계약용. 프레임은 바로 STT로 넘긴다
+            if rec is None or rec.done():
+                # RTZR가 웹소켓을 먼저 닫으면 plugin이 재시도하지 않고 스트림이 죽는다 → 새 스트림으로 이어 간다
+                if time.monotonic() - opened < STT_RESTART_S:
+                    continue  # 다시 열 때까지 들어온 프레임은 버린다
+                if rec is not None:
+                    log.info("[%s] STT 스트림 다시 열기", role.value)
+                stream, opened = engine.stream(), time.monotonic()
+                rec = asyncio.create_task(_recognize(role, call_id, stream, hooks, turns))
+                tasks.append(rec)
             stream.push_frame(fe.frame)
-        stream.end_input()
+        if stream is not None:
+            stream.end_input()
 
     @room.on("participant_connected")
     def _on_join(who: rtc.RemoteParticipant):
