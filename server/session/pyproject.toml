@@ -1,0 +1,13 @@
+[project]
+name = "hyojason-session"
+version = "0.1.0"
+description = "효자손 제어 서버 server/session — 도움 상태·재접속·역할별 투영 (D)"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
