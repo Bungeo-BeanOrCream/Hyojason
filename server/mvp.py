@@ -112,8 +112,11 @@ class IntegratedHub(SessionHub):
         update = super()._apply(control, kind, role, payload, **kwargs)
         if update.state.status == "success" and update.state.outcome != "duplicate_ignored":
             after = control.snapshot
-            if kind == "speech.final" and after.utterance_seq != before.utterance_seq:
-                self._schedule(control, kind, payload)
+            interpret = {effect.kind for effect in update.state.data.side_effects} & {
+                "turn.interpret", "goal.interpret"}
+            if kind == "speech.final" and interpret:
+                # turn.interpret: 지시하는 쪽 발화(지시+목표), goal.interpret: 지원 대상 발화(목표만)
+                self._schedule(control, kind, payload, instructs="turn.interpret" in interpret)
             elif kind == "screen.observed" and after.screen != before.screen and after.screen is not None:
                 transition = (before.screen is not None and after.mode == "CALL_CHILD_LED"
                               and after.screen_revision != before.screen_revision)
@@ -130,17 +133,32 @@ class IntegratedHub(SessionHub):
                                 processing_allowed=(view.help_state != "ENDED"
                                                     and voice_service.consenting_roles(view.pair_id) == set(Role)))
 
-    def _schedule(self, control, event, turn=None, *, before=None) -> None:
+    def _schedule(self, control, event, turn=None, *, before=None, instructs=True) -> None:
         view = self._snapshot(control)
         if not view.processing_allowed:
             return
         speech = None
+        recent: tuple[FinalUtterance, ...] = ()
         source = self._source.value
         if turn is not None:
             source = "LIVE" if source == "LIVE" and turn.get("source") == "stt" else "FIXTURE"
-            # D has already verified that the speaker is the helper for this help.
-            speech = FinalUtterance(**{**turn, "source": source, "speaker_role": "CHILD"})
-        request = B05Input(event=event, snapshot=view, speech=speech,
+            # C의 N-15는 지시하는 쪽을 CHILD, 지원 대상을 PARENT로 본다. D가 화자 역할을 이미 확인했다.
+            helper = "PARENT" if control.snapshot.assisted_role == "CHILD" else "CHILD"
+
+            def relative(role: str) -> str:
+                return "CHILD" if role == helper else "PARENT"
+
+            fields = {key: turn[key] for key in ("utterance_id", "utterance_seq", "text", "call_id")}
+            speech = FinalUtterance(**fields, source=source,
+                                    speaker_role="CHILD" if instructs else "PARENT")
+            recent = tuple(
+                FinalUtterance(utterance_id=item["utterance_id"], utterance_seq=item["utterance_seq"],
+                               speaker_role=relative(item["speaker_role"]), text=item["text"],
+                               call_id=speech.call_id, source=source)
+                for item in control.recent_utterances
+            )
+        request = B05Input(event=event, snapshot=view, speech=speech, recent_utterances=recent,
+                           assisted_role=control.snapshot.assisted_role,
                            before=ScreenState(**asdict(before)) if before is not None else None,
                            execution=ExecutionContext(trace_id=control.trace_id, source=source))
         task = asyncio.create_task(self._evaluate(control, request))
@@ -168,6 +186,9 @@ class IntegratedHub(SessionHub):
         if data.instruction_draft:
             self._apply(control, "instruction.drafted", "SERVER", asdict(data.instruction_draft),
                         basis=basis)
+        if data.goal_belief:
+            # 목표 확률을 먼저 저장하고, 1위가 바뀐 경우에만 목표 초안을 넣는다.
+            self._apply(control, "goal.belief", "SERVER", asdict(data.goal_belief), basis=basis)
         if data.goal_draft:
             self._apply(control, "goal.drafted", "SERVER", asdict(data.goal_draft), basis=basis)
         if data.target:

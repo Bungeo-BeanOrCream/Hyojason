@@ -75,8 +75,10 @@ class _HelpStatePurge:
         self._control = control
 
     def purge(self, help_id: str) -> None:
-        s = self._control._session.snapshot
-        if s.help_id == help_id and (s.goal or s.instruction or s.screen or s.utterance_seq is not None):
+        session = self._control._session
+        s = session.snapshot
+        if s.help_id == help_id and (s.goal or s.goal_belief or s.instruction or s.screen
+                                     or s.utterance_seq is not None or session.recent_utterances):
             raise RuntimeError("N-11 help state still holds help content")
 
 
@@ -170,6 +172,12 @@ class SessionControl:
     def trail(self) -> NavigationTrail:
         with self._lock:
             return self._trail
+
+    @property
+    def recent_utterances(self) -> tuple[dict, ...]:
+        """N-11이 메모리에 둔 현재 도움의 최근 확정 발화 창. B-05 목표 확률 입력용."""
+        with self._lock:
+            return self._session.recent_utterances
 
     def latest_help_id(self, pair_id: str) -> str | None:
         snapshot = self.snapshot

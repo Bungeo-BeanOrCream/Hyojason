@@ -12,7 +12,7 @@
 | mode, mode_revision | N-11 | CALL_CHILD_LED 또는 POST_CALL_AGENT. 실제 hangup 확정에서만 전환하고 revision 증가. 일시적 RTC 재연결은 대기 |
 | utterance_id, utterance_seq | N-06 | call_id의 확정 발화 식별. 같은 turn은 한 번 채택한다. 늦은 응답으로 새 자녀 발화를 덮지 않는다 |
 | instruction_id, instruction_revision | N-11 | CALL_CHILD_LED에서 채택한 최신 자녀 지시 하나. 새 지시마다 revision 증가. 모호하지만 분명히 새 지시인 턴은 이전 표시를 먼저 무효화 |
-| goal_revision | N-11 | 유효한 명시적 목표/슬롯을 채택했을 때만 증가. 변경 감지 질문 없이 최신 자녀의 명시적 목표 결과를 적용 |
+| goal_revision | N-11 | Zoro-1 목표 확률의 1위가 채택 기준을 넘어 현재 목표/슬롯이 바뀌었을 때만 증가. 확률만 바뀐 경우는 증가하지 않음 |
 | projection_epoch, screen_revision, layout_revision | 부모 AVD | 캡처 재승인, 안정 의미 전이, 위치가 달라지는 레이아웃 전이를 구분. 스크롤만으로 통화 중 타이머를 재시작하지 않는다 |
 | decision_id, arrival_id | 서버 | 제안·도착의 중복 제거 키. Basis와 함께 전달 |
 
@@ -26,10 +26,11 @@ Basis의 필드와 결과 적용 규칙은 [공통 결과 계약](node-result-co
 
 | 타입 | 필드 | 유효성 및 범위 |
 |---|---|---|
-| FinalUtterance | utterance_id, utterance_seq, speaker_role, text, call_id, source | text는 세션 처리에 필요한 동안 휘발성으로만 사용. role은 LiveKit 트랙 소속에서 결정 |
+| FinalUtterance | utterance_id, utterance_seq, speaker_role, text, call_id, source | text는 세션 처리에 필요한 동안 휘발성으로만 사용. 목표 추정을 위해 현재 도움의 최근 확정 발화 창(최대 10개)만 메모리에 두고 도움 종료 시 N-23이 비운다. role은 LiveKit 트랙 소속에서 결정 |
 | InstructionDraft | source_utterance_id, target_key?, action, supersedes_previous | N-15의 권위 없는 기본 지시. N-11이 instruction_id와 revision을 발급 |
 | Instruction | instruction_id, instruction_revision, source_utterance_id, target_key?, action, origin_screen_revision? | P0은 최신 지시 하나, 허용 라벨/행동으로 정규화. 목록·원문은 자녀 화면에 전송하지 않음 |
-| GoalDraft | goal_id, approved_slots, source_utterance_id | 모델을 통과한 목표·슬롯. revision은 reducer만 발급 |
+| GoalBelief | probabilities, source_utterance_id, utterance_seq, model_revision | Zoro-1 GOAL의 최신 확률 분포(지원 목표 카탈로그 전체와 NONE). 발화마다 직전 값을 대체. 원문 미포함, 부모·자녀에 투영하지 않음 |
+| GoalDraft | goal_id, approved_slots, source_utterance_id | GoalBelief 1위가 채택 기준(0.70 이상, 2위와 0.15 이상 차이)을 넘은 목표와 카탈로그 규칙으로 채운 슬롯. revision은 reducer만 발급 |
 | ScreenState | projection_epoch, screen_revision, screen_kind, target_ids[], evidence_codes[], observation_health | 부모 화면 분류·검증 증거만 전송. 본문, 좌표, 일반 OCR 텍스트 제외 |
 | LocalObservation | screen: ScreenState, layout_revision, captured_mono_ms, targets[] | 부모 프로세스 전용. targets는 target_id·Rect·검증 근거. 캡처가 멈추면 참조 폐기 |
 | Goal | goal_id, goal_revision, approved_slots, source_utterance_id | 지원 목표 카탈로그만 허용. 발화자가 자녀라고 해서 금지 동작을 허용하지 않음 |
@@ -43,11 +44,11 @@ Basis의 필드와 결과 적용 규칙은 [공통 결과 계약](node-result-co
 | RecoveryHint | instruction_revision, anchor_screen_revision, first_edge_ref, path_distance, basis | N-16의 검증 역방향 경로 요약. ActionVerdict가 WRONG이고 최신 효과 버전과 일치할 때만 사용 |
 | GuideProposal | decision_id, mode, action, target_id?, message_key, confidence, valid_for_ms, basis | CALL_CHILD_LED는 정확한 지시·입력 근거 기반의 TAP/BACK/SCROLL_DOWN만. POST_CALL_AGENT는 현재 한 행동. 둘 다 실제 클릭 명령 금지 |
 | ArrivalDecision | arrival_id, arrived, goal_revision, evidence_codes[], basis | POST_CALL_AGENT에서 화면 증거가 검증된 경우에만. 자녀의 완료 명령과 분리 |
-| HelpSnapshot | help_id, call_state, help_state, mode, mode_revision, goal?, instruction?, screen?, trail_cursor, consent_revision, event_seq | N-11 원본 상태. 부모·자녀에게는 N-21이 필드별 권한 검사 후 투영 |
+| HelpSnapshot | help_id, call_state, help_state, mode, mode_revision, goal?, goal_belief?, instruction?, screen?, trail_cursor, consent_revision, event_seq | N-11 원본 상태. 부모·자녀에게는 N-21이 필드별 권한 검사 후 투영 |
 
 ### 두 판단의 결합
 
-N-15의 지시 해석은 스스로 성공했으면 목표 추론 완료를 기다리지 않고 B-05가 N-11에 초안을 보낸다. 같은 발화의 목표가 준비되면 B-05가 별도 목표 초안을 보낸다. 서버는 (utterance_id, 초안 유형)으로 중복을 막고, 최신 자녀 발화에만 두 종류를 허용한다. 최종 N-15 결과는 한 실행의 기록이며 초안을 다시 발행하지 않는다. 버튼을 정확히 탭했는지 확인할 때는 다른 실패나 늦은 목표 결과로 지시의 t0를 바꾸지 않는다.
+N-15의 지시 해석은 스스로 성공했으면 목표 추론 완료를 기다리지 않고 B-05가 N-11에 초안을 보낸다. 같은 발화의 목표 확률이 준비되면 B-05가 GoalBelief를, 1위 목표가 바뀌었으면 별도 목표 초안을 보낸다. 서버는 (utterance_id, 초안 유형)으로 중복을 막는다. 지시 초안은 최신 자녀 발화에만, GoalBelief와 목표 초안은 최신 확정 발화(두 역할)에 허용한다. 최종 N-15 결과는 한 실행의 기록이며 초안을 다시 발행하지 않는다. 버튼을 정확히 탭했는지 확인할 때는 다른 실패나 늦은 목표 결과로 지시의 t0를 바꾸지 않는다.
 
 ## 이벤트와 전송
 
@@ -57,9 +58,10 @@ REST는 인증·페어·토큰·재연결 조회, TLS WebSocket은 역할 제어
 |---|---|---|
 | call.invite / accepted / ended | 각 역할·RTC → N-11 | 역할, 사유, call_id. ended에서 STT 닫기와 Agent 이어받기 평가 |
 | consent.updated | 해당 역할 → N-11 | purpose, enabled, consent_revision. 철회에서 표시·동의 범위 정리 |
-| speech.final | N-06 → N-11/N-15 | FinalUtterance. 부모 발화는 통화 중 계측만 하며 지시·목표·타이머를 만들지 않음 |
+| speech.final | N-06 → N-11/N-15 | FinalUtterance. 부모 발화는 목표 확률 갱신에만 쓰며 지시·타이머를 만들지 않음 |
 | instruction.accepted / cleared | N-11 → 부모 게이트 | 정규화된 Instruction 또는 취소 사유. 최초 수신으로만 부모 시각을 설정 |
-| goal.updated | N-11 → 부모·내부 | Goal. 자녀에게 목표·지시·단계 진행 투영 없음 |
+| goal.belief | B-05 → N-11 | GoalBelief. N-11 내부 보관만, 부모·자녀 송신 없음 |
+| goal.updated | N-11 → 부모·내부 | Goal. 대화 중 목표가 바뀌면 다시 발행. 자녀에게 목표·지시·단계 진행 투영 없음 |
 | screen.observed | 부모 → N-11 | ScreenState. 보호/관찰 중단은 건강 상태만 전송 |
 | target.located | N-27 → N-19, N-11 | TargetDecision과 Basis. 캡처와 지시 스코프 유지 |
 | recovery.ready | N-16 → N-19 | RecoveryHint와 최신 Basis. 옛 화면 좌표 없이 경로 첫 행동만 |

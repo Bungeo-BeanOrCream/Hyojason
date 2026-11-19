@@ -90,6 +90,8 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
                                "call_id": call_id, "help_id": current.snapshot.help_id, "payload": payload})
                 events = collect(pws)
                 assert any(e["type"] == "event.ack" and e["event_id"] == event_id for e in events), events
+                # 판단이 ACK 대기 중에 끝나면 결과 이벤트가 여기 섞인다. 호출자가 함께 보게 돌려준다.
+                return events
 
             observe("projection.started", {"projection_epoch": "fixture-epoch"})
             observe("screen.observed", {"projection_epoch": "fixture-epoch", "screen_revision": 1,
@@ -127,11 +129,12 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
             assert client.post("/v1/calls", headers=helper).status_code == 409
             assert hub.current_control(invite["pair_id"]) is current
 
-            observe("screen.observed", {"projection_epoch": "fixture-epoch", "screen_revision": 2,
-                                        "observation_health": "ACTIVE", "screen_kind": "clock_alarm_list",
-                                        "target_ids": ["clock.add_alarm"], "evidence_codes": []})
+            observed = observe("screen.observed", {"projection_epoch": "fixture-epoch", "screen_revision": 2,
+                                                   "observation_health": "ACTIVE", "screen_kind": "clock_alarm_list",
+                                                   "target_ids": ["clock.add_alarm"], "evidence_codes": []})
             client.portal.call(drain)
-            guide = next(e for e in collect(pws) if e["type"] == "assist.decision")
+            guide = next(e for e in [*observed, *collect(pws)]
+                         if e["type"] == "assist.decision" and e["payload"]["guide"])
             assert guide["payload"]["guide"]["target_id"] == "clock.add_alarm", guide
 
             observe("screen.observed", {"projection_epoch": "fixture-epoch", "screen_revision": 3,
@@ -152,6 +155,73 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
                 "role": "CHILD", "invite_code": renewed["invite_code"],
             })
             assert claimed.json()["outcome"] == "paired", claimed.text
+
+
+@pytest.mark.parametrize("assisted_role", ["PARENT", "CHILD"])
+def test_15_8_assisted_utterance_changes_goal_through_zoro_belief(assisted_role):
+    """대화 중 지원 대상의 말로 목표가 문자 → 메일로 바뀐다 (docs/small-nodes/N-15.md 15.8).
+
+    모델에는 실제 가족 역할과 이번 도움의 관계를 함께 보낸다.
+    """
+    requests = []
+
+    def decide(body, _):
+        requests.append(body)
+        criteria = body["request"]["questions"]["decision"]["criteria"]
+        if "NONE" not in criteria:
+            return fake_response(body, next(iter(criteria)))
+        latest = body["request"]["state"]["conversation"][-1]["text"]
+        return fake_response(body, "MAIL_OPEN" if "메일" in latest else "SMS_SEND")
+
+    model = InferZoroChoice(model_revision="fixture-ref", transport=decide)
+    app = create_app(B05Workflow(infer_zoro_choice=model.run), fixture=True)
+    hub = app.state.help_hub
+    with TestClient(app) as client:
+        invite = client.post("/v1/pairs/invite", json={"role": "PARENT"}).json()
+        claim = client.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": invite["invite_code"]}).json()
+        parent = {"Authorization": f"Bearer {invite['token']}"}
+        child = {"Authorization": f"Bearer {claim['token']}"}
+        for revision, headers in enumerate((parent, child)):
+            assert client.post("/v1/consent", headers=headers, json={
+                "enabled": True, "consent_revision": revision, "device_capabilities": ["MIC"],
+            }).status_code == 200
+        call_id = client.post("/v1/calls", headers=parent,
+                              json={"assisted_role": assisted_role}).json()["data"]["call_id"]
+        control = hub.control_for(call_id)
+        assert client.post(f"/v1/calls/{call_id}/accept", headers=child).status_code == 200
+        for headers in (parent, child):
+            assert client.post(f"/v1/dev/calls/{call_id}/joined", headers=headers).status_code == 200
+
+        async def drain():
+            async with asyncio.timeout(5):
+                while hub.tasks:
+                    await asyncio.gather(*hub.tasks)
+
+        def say(headers, role, text):
+            response = client.post("/v1/dev/speech-final", headers=headers, json={
+                "call_id": call_id, "speaker_role": role, "text": text})
+            assert response.status_code == 200, response.text
+            client.portal.call(drain)
+
+        assisted, helper = (parent, child) if assisted_role == "PARENT" else (child, parent)
+        helper_role = "CHILD" if assisted_role == "PARENT" else "PARENT"
+        say(assisted, assisted_role, "문자 보내는 거 좀 알려줘")
+        assert control.snapshot.goal.goal_id == "SMS_SEND"
+        assert control.snapshot.goal.approved_slots == {"recipient_id": "demo-recipient", "message_id": "demo-sms"}
+        assert control.snapshot.instruction is None
+        say(helper, helper_role, "문자 보내는 거 말하는 거지?")
+        assert control.snapshot.goal_revision == 1
+        say(assisted, assisted_role, "아니 문자 말고 그 메일 말이야")
+        snapshot = control.snapshot
+        assert (snapshot.goal.goal_id, snapshot.goal_revision) == ("MAIL_OPEN", 2)
+        assert snapshot.goal.approved_slots == {"mail_id": "demo-mail"}
+        assert snapshot.goal_belief.probabilities["MAIL_OPEN"] == 0.95
+        assert snapshot.instruction is None
+        conversation = requests[-1]["request"]["state"]["conversation"]
+        assert [(turn["speaker"], turn["relation"]) for turn in conversation] == [
+            (assisted_role.lower(), "assisted"), (helper_role.lower(), "helper"),
+            (assisted_role.lower(), "assisted")]
+        assert "아니 문자 말고" not in repr(snapshot)
 
 
 def test_unpair_ends_post_call_help_and_revokes_both_connections(model):

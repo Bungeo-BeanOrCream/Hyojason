@@ -76,8 +76,12 @@ class ReducerTests(TestCase):
     def test_turn_scopes_and_idempotency(self):
         self.speech(1)
         original = self.basis
-        self.speech(2, "PARENT")
-        first = self.draft(1, "goal", basis=original)
+        # 지원 대상 발화는 지시 범위(utterance_seq)를 바꾸지 않고 목표 범위의 최신 발화가 된다.
+        self.assertEqual(self.effects(self.speech(2, "PARENT")), ["goal.interpret"])
+        self.assertEqual(self.basis.utterance_seq, original.utterance_seq)
+        self.reject("STALE_BASIS", "goal.drafted", basis=original, source_utterance_id="turn-1",
+                    goal_id="SET_FONT", approved_slots={"steps": 1})
+        first = self.draft(2, "goal", basis=original)
         second = self.draft(1, basis=original, event_id="instruction")
         self.assertEqual(self.effects(first).count("audio.evaluate") + self.effects(second).count("audio.evaluate"), 1)
         self.assertEqual(self.effects(second), ["instruction.accepted"])
@@ -93,6 +97,47 @@ class ReducerTests(TestCase):
         self.reject("STALE_BASIS", "goal.drafted", basis=original, source_utterance_id="turn-1",
                     goal_id="SET_FONT", approved_slots={"steps": 1})
         self.assertNotIn("volatile fixture", repr(self.session.snapshot))
+
+    def belief(self, seq, **probabilities):
+        return self.send("goal.belief", source_utterance_id=f"turn-{seq}", utterance_seq=seq,
+                         model_revision="fixture", probabilities=probabilities)
+
+    def test_15_8_goal_belief_follows_both_roles_and_changes_goal(self):
+        self.session._slots["MAIL_OPEN"] = lambda slots: slots == {"mail_id": "demo_mail"}
+        self.speech(1)
+        self.assertEqual(self.effects(self.belief(1, SMS_SEND=0.8, MAIL_OPEN=0.1, NONE=0.1)), [])
+        self.draft(1, "goal")
+        self.assertEqual(self.basis.goal_revision, 1)
+        self.send("speech.final", utterance_id="parent-1", utterance_seq=1, speaker_role="PARENT",
+                  text="volatile fixture utterance")
+        # 이전 발화의 확률은 최신 발화가 들어오면 받지 않는다. 확률만으로는 revision이 바뀌지 않는다.
+        self.reject("STALE_BASIS", "goal.belief", source_utterance_id="turn-1", utterance_seq=1,
+                    model_revision="fixture", probabilities={"NONE": 1.0})
+        self.send("goal.belief", source_utterance_id="parent-1", utterance_seq=1, model_revision="fixture",
+                  probabilities={"SMS_SEND": 0.1, "MAIL_OPEN": 0.85, "NONE": 0.05})
+        self.assertEqual(self.session.snapshot.goal_belief.probabilities["MAIL_OPEN"], 0.85)
+        self.assertEqual(self.basis.goal_revision, 1)
+        changed = self.send("goal.drafted", source_utterance_id="parent-1", goal_id="MAIL_OPEN",
+                            approved_slots={"mail_id": "demo_mail"})
+        self.assertEqual(self.effects(changed), ["goal.updated"])
+        self.assertEqual((self.session.snapshot.goal.goal_id, self.basis.goal_revision), ("MAIL_OPEN", 2))
+        self.assertEqual([turn["speaker_role"] for turn in self.session.recent_utterances], ["CHILD", "PARENT"])
+        self.reject("INVALID_INPUT", "goal.belief", source_utterance_id="parent-1", utterance_seq=1,
+                    model_revision="fixture", probabilities={"UNKNOWN": 1.0})
+
+    def test_recent_window_is_bounded_and_cleared_with_help(self):
+        for seq in range(1, 13):
+            self.speech(seq)
+        self.assertEqual(len(self.session.recent_utterances), 10)
+        self.assertEqual(self.session.recent_utterances[0]["utterance_id"], "turn-3")
+        self.belief(12, SET_FONT=0.9, NONE=0.1)
+        self.draft(12, "goal")
+        result = self.send("call.ended")
+        self.assertEqual(result.outcome, "call_ended_help_active")
+        self.assertEqual(self.session.recent_utterances, ())
+        self.assertIsNotNone(self.session.snapshot.goal_belief)
+        self.send("consent.updated", "CHILD", purpose="analysis", enabled=False)
+        self.assertIsNone(self.session.snapshot.goal_belief)
 
     def test_replaced_instruction_and_hangup_invalidate_old_model_results(self):
         self.send("projection.started", "PARENT", projection_epoch="epoch")
