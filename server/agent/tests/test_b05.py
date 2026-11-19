@@ -615,3 +615,24 @@ class BelowFoldCatalogTests(TestCase):
         self.assertTrue(set(codes) <= set(below_fold_codes()))
         observed = screen("settings_home", 1, (), evidence=codes)
         self.assertEqual(below_fold_evidence(observed, "settings.display"), ("scroll_down:settings_home", codes[0]))
+
+
+class InCallGoalStepTests(TestCase):
+    """EXPERIMENT (#37): 통화 중 직접 지시 없이 승인된 목표만 있을 때 다음 단계 대상."""
+
+    @staticmethod
+    def goal(goal_id, slots=None):
+        return Goal(goal_id=goal_id, goal_revision=1, source_utterance_id="turn", approved_slots=slots or {})
+
+    def test_goal_step_picks_visible_or_below_fold_route_target(self):
+        from server.agent.profiles import goal_step
+
+        alarm = self.goal("CLOCK_ALARM", {"day": "tomorrow", "time": "07:00"})
+        self.assertEqual(goal_step(alarm, screen("home", 1, ("launcher.clock", "launcher.gmail"))), "launcher.clock")
+        hidden = screen("home", 1, ("launcher.gmail",),
+                        evidence=("below_fold:home:launcher.clock", "scroll_down:home"))
+        self.assertEqual(goal_step(alarm, hidden), "launcher.clock")
+        self.assertIsNone(goal_step(alarm, screen("home", 1, ("launcher.gmail",))))
+        font = self.goal("SET_FONT")
+        self.assertEqual(goal_step(font, screen("settings_home", 2, ("settings.display",))), "settings.display")
+        self.assertIsNone(goal_step(font, screen("settings_display", 3, ())))

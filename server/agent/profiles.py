@@ -188,6 +188,20 @@ def below_fold_evidence(screen: ScreenState, target_id: str) -> tuple[str, ...]:
     return ()
 
 
+def goal_step(goal: Goal, screen: ScreenState) -> str | None:
+    """EXPERIMENT (#37): 통화 중 직접 지시가 없을 때 목표 경로에서 지금 화면의 다음 버튼.
+
+    경로를 뒤에서부터 보며 현재 화면에 보이거나 화면 아래에 있다고 확인된 첫 TAP 대상을 고른다.
+    """
+    for target_id in reversed(GOAL_ROUTES.get(goal.goal_id, ())):
+        profile = TARGETS[target_id]
+        if profile.action != "TAP" or profile.screen != screen.screen_kind:
+            continue
+        if target_id in screen.target_ids or below_fold_evidence(screen, target_id):
+            return target_id
+    return None
+
+
 def required_arrival_evidence(goal: Goal) -> tuple[str, ...]:
     slots = goal.approved_slots
     match goal.goal_id:

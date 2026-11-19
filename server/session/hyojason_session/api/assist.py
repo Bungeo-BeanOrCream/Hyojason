@@ -118,6 +118,10 @@ class AssistedSessionHub(SessionHub):
                                before=before.screen if transition else None)
             elif kind == "instruction.drafted" and after.screen is not None:
                 self._schedule(control, "instruction.accepted")
+            elif (kind in ("goal.drafted", "action.assessed") and after.mode == "CALL_CHILD_LED"
+                  and after.goal is not None and after.instruction is None and after.screen is not None):
+                # EXPERIMENT (#37): 목표가 정해졌거나 지시가 끝나면 지금 화면으로 목표의 다음 단계를 다시 본다.
+                self._schedule(control, "screen.observed")
         return update
 
     def agent_snapshot(self, control) -> AgentSnapshot:

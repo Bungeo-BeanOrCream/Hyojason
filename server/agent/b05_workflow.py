@@ -44,6 +44,7 @@ from .locate_child_instruction_target import (
     LocateChildInstructionTargetInput,
 )
 from .profiles import (
+    goal_step,
     POLICY_REVISION,
     arrival_evidence,
     is_protected,
@@ -210,7 +211,14 @@ class B05Workflow:
         snapshot = request.snapshot
         instruction = snapshot.instruction
         if instruction is None:
-            return self._wait(run, "N-16", "NO_ACTIVE_INSTRUCTION")
+            # EXPERIMENT (#37): 승인된 목표가 있고 자녀의 직접 지시가 없으면 목표 경로의 다음 버튼을 지시
+            # 초안으로 낸다. 이후는 통화 중 지시와 같은 경로(3초 게이트·위치 판단·정답 판정)를 탄다.
+            step = goal_step(snapshot.goal, screen) if snapshot.goal is not None else None
+            if step is None:
+                return self._wait(run, "N-16", "NO_ACTIVE_INSTRUCTION")
+            draft = InstructionDraft(source_utterance_id=snapshot.goal.source_utterance_id,
+                                     target_key=step, action="TAP", supersedes_previous=True)
+            return run.finish("goal_step_drafted", B05Output(instruction_draft=draft))
         if request.event == "observation.transition":
             before = request.before
             if before is None:
