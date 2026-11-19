@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ControlEvent",
+  "description": "제어 이벤트 봉투. help.ended의 payload는 {end_event_id, reason}.",
+  "type": "object",
+  "properties": {
+    "v": {
+      "type": "integer"
+    },
+    "type": {
+      "type": "string"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "pair_id": {
+      "type": "string"
+    },
+    "call_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "help_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "v",
+    "type",
+    "event_id",
+    "pair_id",
+    "call_id",
+    "help_id",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "$defs": {}
+}

@@ -24,12 +24,16 @@ Python 3.11 이상. 런타임 외부 의존성은 없다.
 | `hyojason_session/control.py` | 통화별 쓰기 경로와 N-13의 `HelpStateReader` 구현 |
 | `hyojason_session/role_view.py` | **N-21** project_role_view |
 | `hyojason_session/reconnect.py` | **N-13** reconcile_reconnect |
+| `hyojason_session/completion.py` | **N-22** resolve_arrival_or_completion + 도착·종료 장부(CompletionLedger) |
+| `hyojason_session/purge.py` | **N-23** purge_help_and_restart + 종료 기록(TombstoneRegistry) |
+| `hyojason_session/session_state.py` | N-11 저장소·N-22 장부·N-23 기록을 묶은 읽기 어댑터 (N-13 입력) |
 | `hyojason_session/views.py` | RoleSnapshot·ParentView·ChildView ([제안서](../../docs/work/D-role-view-contract.md)) |
 | `hyojason_session/client_resume_gate.py` | N-13 클라이언트 규칙 참조 구현 (Android Kotlin 이식용, 서버에서 실행 안 함) |
-| `hyojason_session/ports.py` | 다른 노드 경계 (PairDirectory, HelpStateReader) |
-| `hyojason_session/mocks/` | **MOCK**: N-11·N-22·N-23 상태 저장, N-01 페어 확인 |
+| `hyojason_session/client_cleanup.py` | N-23 클라이언트 규칙 참조 구현 (부모 로컬 우선 정리, 완료 문구 1회) |
+| `hyojason_session/ports.py` | 다른 노드 경계 (PairDirectory, HelpStateReader, HelpScopedStore, EventSink) |
+| `hyojason_session/mocks/` | **MOCK**: 격리 테스트용 N-11 상태, N-12·B-05·B-02 저장소, WS 제어 채널, N-01 페어 확인 |
 | `schemas/` | 공유 JSON Schema (이슈 #2) |
-| `tests/` | 노드 문서의 케이스 ID(13.x, 21.x)를 테스트 이름에 사용 |
+| `tests/` | 노드 문서의 케이스 ID(13.x, 21.x, 22.x, 23.x, B07.x)를 테스트 이름에 사용 |
 
 ## 노드 호출 예
 

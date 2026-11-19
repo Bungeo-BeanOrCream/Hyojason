@@ -12,9 +12,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .common.decisions import ArrivalDecision
+from .common.events import ControlEvent
 from .common.result import NodeResult
 from .common.schema import json_schema
 from .common.types import HelpSnapshot
+from .completion import CompletionData
+from .purge import PurgeData
 from .reconnect import ReconnectData
 from .role_view import RoleViewData
 from .views import RoleSnapshot
@@ -46,6 +50,27 @@ TARGETS: dict[str, tuple[type, str, str]] = {
         RoleViewData,
         "N-21 RoleViewData",
         "N-21 project_role_view의 NodeResult.data.",
+    ),
+    "n22-completion-data.schema.json": (
+        CompletionData,
+        "N-22 CompletionData",
+        "N-22 resolve_arrival_or_completion의 NodeResult.data.",
+    ),
+    "n23-purge-data.schema.json": (
+        PurgeData,
+        "N-23 PurgeData",
+        "N-23 purge_help_and_restart의 NodeResult.data.",
+    ),
+    "control-event.schema.json": (
+        ControlEvent,
+        "ControlEvent",
+        "제어 이벤트 봉투. help.ended의 payload는 {end_event_id, reason}.",
+    ),
+    "arrival-decision.schema.json": (
+        ArrivalDecision,
+        "ArrivalDecision",
+        "N-18(C)이 내고 N-22(D)가 검증하는 통화 후 도착 추정. basis에 help·consent·mode·goal·"
+        "projection_epoch·screen_revision이 모두 있어야 한다.",
     ),
 }
 

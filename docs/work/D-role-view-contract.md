@@ -55,3 +55,21 @@ contracts.md의 HelpSnapshot 필드에 세 개를 더했다.
 - **B**: ChildView 세 키와 `can_complete`·`arrival_indicator` 규칙이 자녀 UI에 충분한가. help_id·call_id를 RoleSnapshot 봉투에서 받는 방식이 괜찮은가.
 - **A**: N-20 `banner: ParentView` 입력으로 위 status 값과 `completion_message_key`가 충분한가. 재접속 시 `client_resume_gate.py`의 규칙(Overlay·타이머 제거 → 재관찰 → 표시)을 부모 앱에 옮길 수 있는가.
 - **C**: HelpSnapshot을 읽기 전용으로 받을 때 추가 필드가 문제없는가.
+
+## 5. N-22·N-23 계약 추가
+
+기계 판독용: `arrival-decision`, `control-event`, `n22-completion-data`, `n23-purge-data` 스키마.
+
+| 타입·이벤트 | 필드 | 규칙 |
+|---|---|---|
+| ArrivalDecision (C → D) | arrival_id, arrived, goal_revision, evidence_codes[], basis | basis에 help_id·consent_revision·mode_revision·goal_revision·projection_epoch·screen_revision이 모두 있어야 한다. arrived=true면 evidence_codes가 비어 있으면 안 된다. 현재 snapshot과 하나라도 다르면 STALE_BASIS |
+| help.complete / help.stop (자녀 / 부모 → D) | 봉투 + help_id | 범위는 help_id로만 확인한다(자녀는 goal_revision을 모름). 완료는 자녀만, 중단은 부모만. 지시·목표가 생기기 전(LISTENING)에는 자녀 완료 불가 |
+| arrival.suspected / revoked (D → 자녀) | 봉투 + arrival_id | 통화 후(POST_CALL_AGENT)에만. (help, mode, goal, arrival_id)로 중복 제거, 같은 목표에는 한 번 |
+| help.ended (D → 양쪽) | 봉투(event_id = end_event_id) + payload {end_event_id, reason} | reason은 CHILD_COMPLETED / PARENT_STOPPED / NO_GOAL_AT_HANGUP. 부모 "다 됐어요!"는 CHILD_COMPLETED일 때 end_event_id마다 한 번. 다른 help_id의 help.ended는 무시 |
+| HelpTombstone (N-23 내부) | pair_id, help_id, end_event_id, end_reason, final_event_seq, resume_requires_consent | 사용자 내용 없음. N-11은 새 도움을 열기 전에 resume_requires_consent를 확인 |
+
+N-23이 비우는 범위(CleanupScope): 서버 HELP_STATE · NAVIGATION_TRAIL · INFERENCE_RESULTS · PENDING_UTTERANCES · ARRIVAL_NOTICE, 단말 PARENT_DEVICE(캡처·좌표·타이머·테두리·띠) · CHILD_DEVICE(완료 버튼·도착 알림). 단말 범위는 help.ended를 전달했을 때만 정리된 것으로 센다. 단말 쪽 규칙의 Kotlin 이식용 참조 구현은 [`client_cleanup.py`](../../server/session/hyojason_session/client_cleanup.py).
+
+추가 확인 요청
+- **B**: 자녀 앱이 help.complete에 help_id만 실어 보내고, help.ended·arrival.* 를 위 규칙으로 처리할 수 있는가.
+- **C**: N-18 ArrivalDecision의 basis를 위 필드로 채울 수 있는가. 판단 결과 저장소가 생기면 `purge(help_id)`(scope=INFERENCE_RESULTS)를 구현해 N-23 정리에 연결해 달라.
