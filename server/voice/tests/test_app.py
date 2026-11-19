@@ -254,3 +254,41 @@ def test_b01_livekit_webhook_joined_left(monkeypatch):
 
     ev = [(e["type"], e["payload"].get("reason")) for e in c.get("/v1/dev/outbox").json()]
     assert ev == [("call.invite", None), ("call.accepted", None), ("call.connected", None), ("call.ended", "RTC_FAILED")]
+
+
+def test_b01_pair_survives_call_end_until_unpair():
+    """통화가 끝나도 가족 연결은 유지된다. '가족 연결 끊기'(unpair)로만 끊기고, 그때 진행 중 통화도 끝난다."""
+    c = _client()
+    P, C, cid = _active_call(c)
+    c.post(f"/v1/calls/{cid}/end", headers=P)
+    assert c.get("/v1/consent", headers=C).status_code == 200  # 통화 끝나도 페어 유지
+    cid2 = c.post("/v1/calls", headers=C).json()["data"]["call_id"]  # 같은 페어로 다시 통화
+
+    assert c.post("/v1/pairs/unpair", headers=C).json() == {"outcome": "unpaired"}
+    assert c.get("/v1/consent", headers=P).status_code == 403  # 상대 기기도 끊김 → 앱은 연결 화면으로
+    assert c.post("/v1/pairs/unpair", headers=P).status_code == 403
+    assert m.calls.get(cid2).end_reason.value == "HANGUP"
+    assert [e["type"] for e in c.get("/v1/dev/outbox").json()][-1] == "call.ended"
+    assert c.post("/v1/pairs/invite", json={"role": "PARENT"}).status_code == 200  # 새 코드로 다시 연결 가능
+
+
+def test_service_is_framework_free_for_d():
+    """#10: D가 자기 라우트에서 부를 함수들. 인증은 D의 MockTokenAuthenticator와 같은 모양, 이벤트는 sink로."""
+    from hyojason_voice import service as s
+
+    c = _client()
+    got = []
+    s.set_event_sink(lambda tid, ev: got.append((tid, ev.type)))
+    try:
+        inv = s.invite(None, Role.PARENT)
+        code = next(k for k, v in s.pairs.invites.items() if v.pair_id == inv["pair_id"])
+        result, ctok = s.claim(None, Role.CHILD, code)
+        assert result.outcome == "paired" and ctok
+        parent = s.authenticate(inv["token"])  # D는 'Bearer ' 뺀 토큰을 넘긴다
+        assert (parent.pair_id, parent.role) == (inv["pair_id"], Role.PARENT)
+        assert s.authenticate("nope") is None and s.authenticate(None) is None
+        assert s.role_of(inv["pair_id"], parent.user_id) is Role.PARENT
+        r = s.call_op(m.Operation.START, parent)
+        assert got == [(r.diagnostics.trace_id, "call.invite")]
+    finally:
+        s.set_event_sink(lambda tid, ev: s.OUTBOX.append((tid, ev)))
