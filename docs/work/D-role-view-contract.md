@@ -80,7 +80,7 @@ trace_id는 서버가 발급한다(D-status 결정 메모 6). 이를 앱과 주�
 
 | 필드 | 규칙 |
 |---|---|
-| trace_id | 통화 1회에 1개. 서버가 통화를 만들 때 발급하고 통화가 끝날 때까지 유지(help_id가 바뀌어도 같음). 서버 → 앱 이벤트에는 항상 싣는다. 앱 → 서버 이벤트에는 받은 값을 그대로 다시 싣고, 앱이 새로 만들지 않는다. 다르면 서버는 통화의 값으로 기록한다. 통화 생성 전 이벤트(`call.invite` 요청)에는 null |
+| trace_id | 도움 1회에 1개(D-status 결정 메모 9). 첫 도움은 서버가 통화를 만들 때, 다음 도움은 새 코드 승인(`help.link_approved`) 때 발급한다. 서버 → 앱 이벤트에는 항상 싣는다. 앱 → 서버 이벤트에는 받은 값을 그대로 다시 싣고, 앱이 새로 만들지 않는다. 다르면 서버는 통화의 값으로 기록한다. 통화 생성 전 이벤트(`call.invite` 요청)에는 null |
 
 앱은 부모 N-09·N-10·N-19 기록, 자녀 앱 기록, 리허설 증거 파일에 같은 trace_id를 찍는다. 통화 생성 응답을 받기 전에는 지시·안내가 생기지 않으므로 그 전 기록은 판정에 쓰지 않는다.
 
@@ -102,3 +102,19 @@ trace_id는 서버가 발급한다(D-status 결정 메모 6). 이를 앱과 주�
 REST 오류는 `{"error": {"code", "node_code"}}`이고, 토큰이 없거나 틀리면 401 UNAUTHENTICATED다.
 
 확인 요청: A(부모 앱 수신 처리), B(자녀 앱 수신 처리·`call.invite` 뒤 `POST /v1/calls/{id}/accept`).
+
+## 8. 지원 대상(assisted_role)과 새 도움 — 이슈 #6 준비 (제안)
+
+D 코드에 들어간 준비 사항이다. 지원 대상 방식 자체는 #6에서 팀이 정하며, 기본값(부모)에서는 기존 동작과 같다.
+
+| 항목 | 규칙 |
+|---|---|
+| HelpSnapshot.assisted_role | 이번 도움의 지원 대상 기기(PARENT/CHILD, 기본 PARENT). 도움마다 고정 |
+| `help.link_approved` (B 서버 → D, 서버 내부) | payload `{assisted_role}`. 끝난 도움 뒤 같은 통화에서 새 코드가 승인되면 새 help_id로 다음 도움을 연다. 열린 도움에는 NOT_APPLICABLE, 재동의 전에는 NO_CONSENT |
+| `POST /v1/calls` body | `{assisted_role}` 선택(기본 PARENT). 첫 도움의 지원 대상 |
+| 앱 → 서버 권한 | 지원 대상: `projection.started`, `screen.observed`, `guide.*`, `help.stop` / 상대: `help.complete` / 둘 다: `consent.updated` |
+| 서버 → 앱 | 지시·목표·모드·안내 효과와 안내 화면(`parent_view` 자리)은 지원 대상 기기로, 상대 기기에는 `call.invite`·`help.view`(최소 화면)·`arrival.*`·`help.ended`만 |
+| 종료 사유 | 누른 가족 역할 + 동작: `CHILD_COMPLETED`·`PARENT_STOPPED`(부모 지원), `PARENT_COMPLETED`·`CHILD_STOPPED`(자녀 지원), `CONSENT_REVOKED`, `NO_GOAL_AT_HANGUP` |
+| Basis | 새 키 없음(D 의견). 임시 연결 = help_id, assisted_role은 help_id에 고정 |
+
+이름(`ParentView`/`ChildView`, `parent_view`/`child_view`)은 지금은 '지원 대상 화면/상대 화면' 뜻으로 쓰고, #6 합의 뒤 역할 중립 이름으로 바꾼다.

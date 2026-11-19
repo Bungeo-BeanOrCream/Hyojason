@@ -27,12 +27,12 @@ uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 | 경로 | 호출자 | 처리 |
 |---|---|---|
 | `POST /v1/pairs/claim` | 두 역할 | **MOCK** N-01 페어 승인 |
-| `POST /v1/calls` | 부모 | 통화 생성, `trace_id` 발급(결정 메모 6), 자녀에게 `call.invite` |
+| `POST /v1/calls` | 부모 | 통화 생성(body `assisted_role` 선택, 기본 PARENT), 첫 도움의 `trace_id` 발급, 자녀에게 `call.invite` |
 | `POST /v1/calls/{call_id}/accept` | 자녀 | 수락. **MOCK** N-03이 곧바로 `call.connected` |
 | `POST /v1/calls/{call_id}/rtc-token` | 페어 참가자 | **MOCK**: 토큰 없음(null) |
 | `GET /v1/help/current` | 페어 참가자 | N-13 재접속 조회 |
 | `WS /v1/events` | 페어 참가자 | 앱 이벤트 수신, N-11 효과·`help.ended`·`help.view` 송신 |
-| `POST /v1/internal/calls/{call_id}/events` | 서버 내부(B-02·C·N-03) | 서버 이벤트 적용 (`X-Service-Token`) |
+| `POST /v1/internal/calls/{call_id}/events` | 서버 내부(B-02·C·N-03, B의 새 코드 승인 `help.link_approved`) | 서버 이벤트 적용 (`X-Service-Token`) |
 | `POST /v1/internal/calls/{call_id}/arrivals` | 서버 내부(C의 N-18) | 도착 추정 → N-22 (`X-Service-Token`) |
 
 앱 인증은 `Authorization: Bearer <token>`(**MOCK** B-01). WS 메시지 형식은 [계약 추가 제안 7장](../../docs/work/D-role-view-contract.md).

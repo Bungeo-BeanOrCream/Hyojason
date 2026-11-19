@@ -49,12 +49,25 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - N-11 내부 종료(동의 철회 `CONSENT_REVOKED`, 목표 없는 통화 종료 `NO_GOAL_AT_HANGUP`)도 N-11의 `help.purge` 효과로 N-23을 거쳐 `help.ended`를 보낸다. N-11은 `help.ended`를 직접 내지 않는다.
 
 6. **trace_id는 서버가 발급 — 결정(2026-11-19, 사용자).** 이슈 #5의 A 질문에 대한 답.
-   - 단위: 통화(call) 1회에 1개. 서버가 통화를 만들 때(`POST /v1/calls`, 통화별 `SessionControl` 생성 시점) 만들고, 같은 통화 안에서 help_id가 바뀌어도 유지한다.
+   - 단위: ~~통화 1회에 1개~~ → **도움 1회에 1개**로 보완(결정 메모 9). 첫 도움은 통화를 만들 때(`POST /v1/calls`), 다음 도움은 새 코드 승인 때 새로 만든다.
    - 앱은 받은 값을 그대로 쓰고 새로 만들지 않는다. 앱이 다른 값을 보내면 서버는 통화의 값으로 기록한다.
    - 저장: DB 없이 서버 메모리의 통화 상태에만 두고 통화·도움 종료와 함께 정리한다. 상태는 계속 pair/call/help_id로 관리하며 trace_id는 기록을 묶는 꼬리표다.
    - 남은 합의: 제어 이벤트 봉투에 `trace_id` 필드 추가 (A·B, [계약 추가 제안 6장](D-role-view-contract.md)). 서버 구현은 제어 서버와 함께 한다 — 지금 `SessionControl`은 명령마다 새 trace_id를 만든다.
 
 7. **웹 프레임워크는 FastAPI — 결정(2026-11-19, 사용자).** 서버가 Python 3.11+이고 WebSocket과 요청 형식 검증을 기본 지원한다. `server/session` 안에 두고 한 프로세스로 실행하며, 상태는 DB 없이 메모리(결정 메모 6). 엔드포인트 분담은 [이슈 #10](https://github.com/Bungeo-BeanOrCream/Hyojason/issues/10)에 제안: D가 서버 뼈대·`WS /v1/events`·`GET /v1/help/current`, 페어·통화는 B 판단 함수를 D가 연결.
+
+8. **새 도움 = 새 코드 승인 (G-3, 이슈 #6) — D 결정(2026-11-19).**
+   - 도움이 끝나면 같은 RTC 통화 안에서도 B 서버가 보내는 `help.link_approved`(서버 내부 이벤트, payload `assisted_role`) 전에는 새 도움을 열지 않는다. 승인 전에 들어온 지시 발화는 해석하지 않는다(NOT_APPLICABLE).
+   - 승인되면 새 help_id·빈 상태·캡처 미승인(새 projection_epoch 필요)에서 시작하고 지원 대상을 고정한다. 이전 도움을 대상으로 한 늦은 결과·종료는 help_id가 달라 STALE_BASIS.
+   - 안내 끄기·동의 철회로 끝났으면 재동의 전에는 승인이 와도 열지 않는다(NO_CONSENT, B07.3).
+   - 임시 연결(인증번호)은 help_id와 1:1로 본다. 도움이 끝나면 D가 `help.ended`를 보내고, B는 이 이벤트로 임시 연결을 닫는 것을 제안한다. 통화 종료는 도움을 끝내지 않는다(기존 POST_CALL_AGENT).
+   - 기존 N-11의 '끝난 뒤 다음 발화로 자동 새 도움(rollover)'은 없앴다.
+9. **trace_id는 도움 단위 — D 결정(2026-11-19).** #6 전제대로 새 도움 = 새 세션이므로 N-25가 한 실행에 두 도움을 섞지 않게 도움마다 새 trace_id를 쓴다. 통화 생성 응답의 trace_id는 첫 도움의 것이다.
+10. **D 노드 역할 중립화 — 준비만(2026-11-19), 지원 대상 방식 자체는 #6 팀 결정.**
+   - 도움마다 `assisted_role`(기본 부모)을 고정하고 D 코드가 이를 기준으로 동작한다: 관찰·안내 이벤트는 지원 대상만 보냄, 지시 발화자는 상대 역할, 안내·지시·목표 효과와 안내 화면은 지원 대상 기기로, 재접속 재관찰은 지원 대상만, 완료는 상대·안내 끄기는 지원 대상(#6 제안).
+   - 종료 사유에 실제로 누른 가족 역할이 들어간다: 부모 지원이면 기존 그대로 `CHILD_COMPLETED`/`PARENT_STOPPED`, 자녀 지원이면 새로 추가한 `PARENT_COMPLETED`/`CHILD_STOPPED`.
+   - 기본값(부모)에서는 기존 동작과 같다. 타입·필드 이름(ParentView/ChildView, 메서드 이름)은 A처럼 #6 합의 뒤 한 번에 역할 중립 이름으로 바꾼다.
+   - 남은 팀 결정: assisted_role 도입과 기본값, 완료 권한, 자녀 발신 P0(지금 D 서버는 부모 발신만), Basis·contracts.md 변경. D 의견: Basis에 새 키는 필요 없다(임시 연결 = help_id, assisted_role은 help_id에 고정, 캡처는 projection_epoch).
 
 ## 다음 할 일
 
@@ -62,11 +75,12 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 이슈 #10: B의 페어·통화·토큰 판단 함수와 인증 토큰 형식을 받아 `MockPairingService`·`MockTokenAuthenticator`를 교체.
    - 봉투 `trace_id` 합의(아래 2) 뒤 송신 이벤트에 싣기. 지금 trace_id는 `POST /v1/calls` 응답과 서버 내부 결과에만 있다.
    - A·B 앱이 WS에 붙어 실제 메시지로 확인 (지금은 테스트 클라이언트·uvicorn 스모크뿐).
-2. **제어 이벤트 봉투에 `trace_id` 추가 합의** (이슈 #5, A·B). 발급은 서버로 결정됨(결정 메모 6). 합의되면 `docs/contracts.md` PR에 함께 넣고, 제어 서버 구현 때 통화 단위 trace_id를 발급·전달한다.
-3. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
-4. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
-5. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
-6. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
+2. **이슈 #6 합의**: 결정 메모 10의 남은 팀 결정. 합의되면 이름 변경과 `docs/contracts.md` 반영, B 서버(`server/voice`)의 `help.link_approved` 연결.
+3. **제어 이벤트 봉투에 `trace_id` 추가 합의** (이슈 #5, A·B). 발급은 서버로 결정됨(결정 메모 6). 합의되면 `docs/contracts.md` PR에 함께 넣고, 제어 서버 구현 때 통화 단위 trace_id를 발급·전달한다.
+4. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
+5. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
+6. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
+7. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
 
 ## 하면 안 되는 일
 
@@ -80,6 +94,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
+- 이슈 #6: 지원 대상 방식·완료 권한·자녀 발신·Basis는 팀 합의 대기 (A·B는 의견 남김, C 대기).
 - 이슈 #10: 엔드포인트 분담에 대한 B 동의, B 판단 함수 위치, 인증 토큰 형식 답변 대기. 그 전에는 페어·통화 자리에 Mock.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
