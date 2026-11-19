@@ -80,7 +80,12 @@ data class GateData(
 
 object GuideGate {
     const val DELAY_MS = 3_000L
-    private const val FRAME_MAX_AGE_MS = 1_000L
+    /**
+     * Capture-to-display budget. The frame is OCR-scanned (up to 1.2s on an emulator) before it can
+     * be displayed, so a 1s limit hid every guide (#32). A newer frame or revision change still
+     * invalidates the guide, so this only bounds how old the confirmed pixels may be.
+     */
+    const val FRAME_MAX_AGE_MS = 2_500L
     private const val STEP = "validate_display"
     private const val WARNING = "되돌리기 어려운 동작이에요. 천천히 확인하세요"
 
