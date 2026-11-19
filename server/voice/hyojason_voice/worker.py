@@ -4,9 +4,10 @@
 상태를 바꾸는 일(N-03 JOINED/END, N-06 확정)은 전부 app이 넘긴 CallHooks로 한다 → 같은 프로세스·같은 이벤트 루프.
 
 dev 단독 실행 (콘솔 출력만, 서버 상태는 안 바꿈):
-    .venv/bin/python -m hyojason_voice.worker <call_id> [--print-text] [--no-keywords]
+    .venv/bin/python -m hyojason_voice.worker <call_id> [--print-text] [--no-keywords] [--no-denoise]
 
 - 트랙마다 RTZR 스트림을 따로 연다(참가자가 둘이라 AgentSession 하나로는 역할을 못 나눈다).
+- RTZR로 보내기 전에 트랙마다 배경 잡음을 줄인다(denoise.py, `HYOJASON_VOICE_DENOISE=off`로 끈다).
 - 인식 원문은 로그에 쓰지 않는다(B02.2). 단독 실행의 --print-text만 예외(dev 확인용).
 """
 
@@ -31,6 +32,7 @@ from livekit.plugins import rtzr
 from .audio import AudioChunk, AudioIngest, SourceKind
 from .common import parse_identity
 from .consent import ConsentView
+from .denoise import denoiser_factory
 from .stt import Finality, Reliability, SttEvent, SttKind, TurnRequest, transcribe_korean_turn
 
 log = logging.getLogger("hyojason.worker")
@@ -122,9 +124,12 @@ async def _recognize(role: Role, call_id: str, stream, hooks: CallHooks, turns: 
         log.warning("[%s] STT 중단 %s: %s", role.value, r.diagnostics.terminal_error.code, type(e).__name__)
 
 
-async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = True) -> None:
+async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = True,
+              denoise: bool = True) -> None:
     """취소되거나 방에서 끊길 때까지 돈다."""
     engine = rtzr.STT(model="sommers_ko", keywords=KEYWORDS if keywords else None)
+    # 트랙마다 잡음 제거기를 새로 만든다(상태가 역할·통화끼리 섞이지 않게). 못 올리면 None → 원래 프레임.
+    make_denoiser = denoiser_factory() if denoise else None
     room = rtc.Room()
     ingest = AudioIngest(pair_id, call_id)
     tasks: list[asyncio.Task] = []
@@ -138,6 +143,7 @@ async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = 
         turns = itertools.count(1)
         stream, rec, opened = None, None, -STT_RESTART_S
         seq = 0
+        cleaner = make_denoiser() if make_denoiser else None
         async for fe in rtc.AudioStream(track):
             chunk = AudioChunk(call_id, track.sid, who.identity, _SOURCE.get(pub.source, SourceKind.UNKNOWN),
                                fe.frame.data.tobytes(), seq)
@@ -155,7 +161,13 @@ async def run(call_id: str, pair_id: str, hooks: CallHooks, *, keywords: bool = 
                 stream, opened = engine.stream(), time.monotonic()
                 rec = asyncio.create_task(_recognize(role, call_id, stream, hooks, turns))
                 tasks.append(rec)
-            stream.push_frame(fe.frame)
+            if cleaner is None:
+                stream.push_frame(fe.frame)
+            else:
+                # 48 kHz → 16 kHz, 잡음 제거(32ms 지연). 모델 실행(16ms당 약 2.5ms)은 GIL을 놓으므로
+                # 이벤트 루프 밖에서 돌리고, 트랙 안에서는 프레임 순서대로 기다린다.
+                for clean in await asyncio.to_thread(cleaner.push, fe.frame):
+                    stream.push_frame(clean)
         if stream is not None:
             stream.end_input()
 
@@ -200,6 +212,7 @@ def main() -> None:
     p.add_argument("call_id")
     p.add_argument("--print-text", action="store_true", help="인식 원문 출력 (dev 전용)")
     p.add_argument("--no-keywords", action="store_true", help="키워드 부스팅 끄기 (정확도 비교용)")
+    p.add_argument("--no-denoise", action="store_true", help="배경 잡음 제거 끄기 (정확도 비교용)")
     a = p.parse_args()
     logging.basicConfig(level=logging.WARNING)
     log.setLevel(logging.INFO)
@@ -215,7 +228,7 @@ def main() -> None:
     )
     pair_id = os.environ.get("PAIR_ID") or input("pair_id (dev_call.sh 출력의 PID): ").strip()
     try:
-        asyncio.run(run(a.call_id, pair_id, hooks, keywords=not a.no_keywords))
+        asyncio.run(run(a.call_id, pair_id, hooks, keywords=not a.no_keywords, denoise=not a.no_denoise))
     except KeyboardInterrupt:
         pass
 

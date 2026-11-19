@@ -9,5 +9,8 @@ uvicorn==0.54.0
 livekit-api==1.2.3
 livekit-agents==1.8.13
 livekit-plugins-rtzr==1.8.13
+# STT 앞 배경 잡음 제거(hyojason_voice/denoise.py, GTCRN ONNX)
+numpy==2.4.6
+onnxruntime==1.32.0
 pytest==9.2.0
 httpx==0.28.1
