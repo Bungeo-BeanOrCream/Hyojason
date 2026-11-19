@@ -1,11 +1,11 @@
 package com.hyojason.app.observer
 
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.ErrorDescriptor
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.StepDiagnostic
-import com.hyojason.app.observer.contract.StepStatus
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.ErrorDescriptor
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.StepDiagnostic
+import com.hyojason.app.contract.StepStatus
 
 /** Semantic controls come from the profile. They can remain the same as visible targets scroll out. */
 data class SemanticScreen(val kind: String, val controlIds: Set<String>)

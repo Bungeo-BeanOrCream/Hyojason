@@ -1,9 +1,9 @@
 package com.hyojason.app.observer.detection
 
 import com.hyojason.app.observer.LocalRect
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
 
 enum class FrameSafety { ALLOWED, PROTECTED, UNKNOWN }
 enum class FrameHealth { READY, PROTECTED, GEOMETRY_UNCERTAIN }

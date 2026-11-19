@@ -1,6 +1,6 @@
 package com.hyojason.app.overlay.gate
 
-import com.hyojason.app.observer.contract.HelpMode
+import com.hyojason.app.contract.HelpMode
 
 /** Owned by the serialized parent event loop. Returns true when it invalidates the previous guide. */
 class GateClock {

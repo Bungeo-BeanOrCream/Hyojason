@@ -14,8 +14,8 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.Looper
 import android.view.WindowManager
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.NodeResult
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.NodeResult
 import com.hyojason.app.observer.detection.failure
 
 /** Bind from the parent UI before applying the user's system approval. Keep the binding for the active help. */

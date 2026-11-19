@@ -1,11 +1,11 @@
 package com.hyojason.app.observer.detection
 
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.ErrorDescriptor
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.StepDiagnostic
-import com.hyojason.app.observer.contract.StepStatus
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.ErrorDescriptor
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.StepDiagnostic
+import com.hyojason.app.contract.StepStatus
 
 internal fun recorded(diagnostic: Diagnostic, node: String, step: String, code: String? = null): Diagnostic =
     diagnostic.copy(

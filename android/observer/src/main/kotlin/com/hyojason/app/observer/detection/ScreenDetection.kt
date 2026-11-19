@@ -5,10 +5,10 @@ import com.hyojason.app.observer.LocalTarget
 import com.hyojason.app.observer.ObservationHealth
 import com.hyojason.app.observer.ScreenSample
 import com.hyojason.app.observer.SemanticScreen
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.Source
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.Source
 
 enum class FeatureKind { TEXT, ICON, STATE }
 enum class DetectionCoverage { COMPLETE, PARTIAL }

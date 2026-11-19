@@ -1,8 +1,8 @@
 package com.hyojason.app.overlay.gate
 
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
 
 data class ParentGuideData(val display: LocalGuide?, val rendered: Boolean, val reason: String)
 

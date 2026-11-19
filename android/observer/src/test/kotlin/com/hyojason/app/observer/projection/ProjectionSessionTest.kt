@@ -1,10 +1,10 @@
 package com.hyojason.app.observer.projection
 
-import com.hyojason.app.observer.contract.Basis
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.Source
+import com.hyojason.app.contract.Basis
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.Source
 import com.hyojason.app.observer.detection.FramePixels
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals

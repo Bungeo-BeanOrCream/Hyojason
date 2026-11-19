@@ -5,11 +5,11 @@ import com.hyojason.app.observer.LocalRect
 import com.hyojason.app.observer.LocalTarget
 import com.hyojason.app.observer.ObservationHealth
 import com.hyojason.app.observer.ScreenState
-import com.hyojason.app.observer.contract.Basis
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.HelpMode
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.Source
+import com.hyojason.app.contract.Basis
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.HelpMode
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.Source
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

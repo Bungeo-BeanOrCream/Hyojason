@@ -3,14 +3,14 @@ package com.hyojason.app.overlay.gate
 import com.hyojason.app.observer.LocalObservation
 import com.hyojason.app.observer.LocalRect
 import com.hyojason.app.observer.ObservationHealth
-import com.hyojason.app.observer.contract.Basis
-import com.hyojason.app.observer.contract.Diagnostic
-import com.hyojason.app.observer.contract.ErrorDescriptor
-import com.hyojason.app.observer.contract.HelpMode
-import com.hyojason.app.observer.contract.NodeResult
-import com.hyojason.app.observer.contract.NodeStatus
-import com.hyojason.app.observer.contract.StepDiagnostic
-import com.hyojason.app.observer.contract.StepStatus
+import com.hyojason.app.contract.Basis
+import com.hyojason.app.contract.Diagnostic
+import com.hyojason.app.contract.ErrorDescriptor
+import com.hyojason.app.contract.HelpMode
+import com.hyojason.app.contract.NodeResult
+import com.hyojason.app.contract.NodeStatus
+import com.hyojason.app.contract.StepDiagnostic
+import com.hyojason.app.contract.StepStatus
 
 enum class GuideAction { TAP, BACK, SCROLL_DOWN, SCROLL_UP, INPUT_HINT, WAIT }
 enum class TargetLocation { VISIBLE, BELOW_FOLD, UNKNOWN, BLOCKED }
