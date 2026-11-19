@@ -551,3 +551,18 @@ class GoalSlotContractTests(TestCase):
         split = ["내일 알람 하나 맞춰 줘", "오전 6시로"]
         self.assertEqual(goal_slots("CLOCK_ALARM", split), {"day": "tomorrow", "time": "06:00"})
         self.assertIsNone(goal_slots("CLOCK_ALARM", ["오늘 저녁은 드셨어요?", "오전 6시로"]))
+
+    def test_3_sms_draft_evidence_uses_d_asset_ids(self):
+        from server.agent.enumerate_action_candidate import _goal_candidates
+        from server.agent.profiles import sms_draft_evidence
+
+        goal = Goal(goal_id="SMS_SEND", goal_revision=1, source_utterance_id="turn",
+                    approved_slots={"recipient_id": "demo-recipient", "message_id": "demo-sms"})
+        targets = ("sms.text_field", "sms.send")
+        empty = screen("sms_conversation", 3, targets)
+        drafted = screen("sms_conversation", 4, targets, evidence=(sms_draft_evidence(),))
+        old = screen("sms_conversation", 5, targets, evidence=("sms_draft:demo_recipient:demo_message",))
+        self.assertEqual(sms_draft_evidence(), "sms_draft:demo-recipient:demo-sms")
+        self.assertEqual([c.target_id for c in _goal_candidates(goal, empty)], ["sms.text_field"])
+        self.assertEqual([c.target_id for c in _goal_candidates(goal, drafted)], ["sms.send"])
+        self.assertEqual([c.target_id for c in _goal_candidates(goal, old)], ["sms.text_field"])

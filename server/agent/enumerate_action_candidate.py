@@ -35,6 +35,7 @@ from .profiles import (
     is_protected,
     is_stable,
     required_arrival_evidence,
+    sms_draft_evidence,
     target_profile,
 )
 
@@ -175,7 +176,7 @@ def _instruction_candidates(
         return (), ()
     if (
         target == "sms.send"
-        and "sms_draft:demo_recipient:demo_message" not in screen.evidence_codes
+        and sms_draft_evidence() not in screen.evidence_codes
     ):
         return (), ()
     if target in screen.target_ids:
@@ -219,7 +220,8 @@ def _goal_candidates(goal: Goal, screen: ScreenState) -> tuple[Candidate, ...]:
             if edit_time_set != (target == "clock.save_alarm"):
                 continue
         if target in {"sms.text_field", "sms.send"}:
-            draft_set = "sms_draft:demo_recipient:demo_message" in evidence
+            slots = goal.approved_slots
+            draft_set = sms_draft_evidence(slots.get("recipient_id"), slots.get("message_id")) in evidence
             if draft_set != (target == "sms.send"):
                 continue
         if (
