@@ -19,7 +19,7 @@ private fun checkedId(value: String): String = value.also {
 internal enum class FailureDomain { FUNCTION, DEVICE, CONTRACT }
 
 internal data class ParentRun(
-    val caseId: String, val attempt: Int, val traceId: String, val source: Source,
+    val caseId: String, val attempt: Int, val traceId: String?, val source: Source,
     val basis: Basis,
     val inputSource: Source? = null, val screenSource: Source? = null, val modelSource: Source? = null,
     val deviceRevision: String? = null, val appRevision: String? = null,
@@ -31,6 +31,9 @@ internal data class ParentRun(
         listOfNotNull(caseId, traceId, deviceRevision, appRevision, profileRevision, modelRevision,
             basis.pair_id, basis.call_id, basis.help_id, basis.projection_epoch).forEach(::checkedId)
     }
+
+    /** trace_id가 주입되지 않은 기록은 판정용으로 내보내지 않고 UNVERIFIED로 남긴다 (이슈 #5). */
+    val status: String get() = if (traceId == null) "UNVERIFIED" else "VERIFIED"
 
     fun location(boundsMatch: Boolean?) = row(buildMap {
         boundsMatch?.let { put("bounds_match", it) }
@@ -49,7 +52,7 @@ internal data class ParentRun(
             require(diagnostic.basis.projection_epoch != null && diagnostic.basis.projection_epoch == basis.projection_epoch)
             require(diagnostic.basis.help_id == basis.help_id)
         }
-        require(after.diagnostics.trace_id == traceId && current.screen_revision == basis.screen_revision)
+        require(traceId != null && after.diagnostics.trace_id == traceId && current.screen_revision == basis.screen_revision)
         val screens = before.diagnostics.source.withInputs(listOf(after.diagnostics.source))
         return copy(screenSource = screens.withInputs(listOfNotNull(screenSource))).row(mapOf(
             "screen_revision_changed" to (previous.screen_revision != current.screen_revision),
@@ -58,7 +61,7 @@ internal data class ParentRun(
     }
 
     private fun row(actual: Map<String, Any?>): Map<String, Any?> = mapOf(
-        "case_id" to caseId, "attempt" to attempt, "trace_id" to traceId,
+        "case_id" to caseId, "attempt" to attempt, "trace_id" to requireNotNull(traceId),
         "source" to source.withInputs(listOfNotNull(inputSource, screenSource, modelSource)).name,
         "input_source" to inputSource?.name, "screen_source" to screenSource?.name, "model_source" to modelSource?.name,
         "device_revision" to deviceRevision, "app_revision" to appRevision,
@@ -135,11 +138,34 @@ internal fun TransitionData.parentTransition() = mapOf(
 
 private val evidenceJson = GsonBuilder().serializeNulls().create()
 
-internal fun observedRunsJson(run: ParentRun, measurement: ParentTiming): String =
-    evidenceJson.toJson(mapOf("observed_runs" to listOf(run.timing(measurement))))
+private fun export(run: ParentRun, row: () -> Map<String, Any?>): String? =
+    if (run.traceId == null) null else evidenceJson.toJson(mapOf("observed_runs" to listOf(row())))
 
-internal fun observedLocationJson(run: ParentRun, boundsMatch: Boolean?): String =
-    evidenceJson.toJson(mapOf("observed_runs" to listOf(run.location(boundsMatch))))
+internal fun observedRunsJson(run: ParentRun, measurement: ParentTiming): String? =
+    export(run) { run.timing(measurement) }
 
-internal fun observedScrollJson(run: ParentRun, before: NodeResult<TransitionData>, after: NodeResult<TransitionData>): String =
-    evidenceJson.toJson(mapOf("observed_runs" to listOf(run.scrollTransition(before, after))))
+internal fun observedLocationJson(run: ParentRun, boundsMatch: Boolean?): String? =
+    export(run) { run.location(boundsMatch) }
+
+internal fun observedScrollJson(run: ParentRun, before: NodeResult<TransitionData>, after: NodeResult<TransitionData>): String? =
+    export(run) { run.scrollTransition(before, after) }
+
+/** 도움(help) 하나의 trace_id를 서버가 발급한 값으로만 보관한다. 직접 만들지 않는다.
+ * 통화 종료·네트워크 끊김으로는 지우지 않고 도움 종료(또는 새 도움 시작)에서만 바뀐다.
+ */
+internal class HelpTraceIds {
+    private var helpId: String? = null
+    private var traceId: String? = null
+
+    fun inject(helpId: String, traceId: String) {
+        checkedId(helpId); checkedId(traceId)
+        this.helpId = helpId; this.traceId = traceId
+    }
+
+    /** 현재 도움의 값. 다른 도움이면 null (이전 값을 새 도움에 쓰지 않는다). */
+    fun current(helpId: String): String? = traceId.takeIf { this.helpId == helpId }
+
+    fun endHelp(helpId: String) {
+        if (this.helpId == helpId) { this.helpId = null; traceId = null }
+    }
+}

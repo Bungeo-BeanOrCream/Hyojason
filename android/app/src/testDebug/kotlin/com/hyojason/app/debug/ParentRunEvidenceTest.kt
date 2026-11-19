@@ -29,7 +29,7 @@ class ParentRunEvidenceTest {
     private fun run(source: Source = Source.LIVE, screen: Source? = null) =
         ParentRun("E08", 1, "t1", source, basis, screenSource = screen)
 
-    private fun parse(json: String) = JsonParser.parseString(json).asJsonObject.getAsJsonArray("observed_runs")[0].asJsonObject
+    private fun parse(json: String?) = JsonParser.parseString(json!!).asJsonObject.getAsJsonArray("observed_runs")[0].asJsonObject
 
     @Test fun `행 필드명은 D의 RunEvidence와 같다`() {
         val row = parse(observedLocationJson(run(), true))
@@ -84,5 +84,29 @@ class ParentRunEvidenceTest {
     @Test fun `통화 후 모드의 기준 시각 이름이 다르다`() {
         val timing = ParentTiming(GateClock(), HelpMode.POST_CALL_AGENT) { 0L }
         assertEquals("post_call_stable_screen", timing.actual()["origin"])
+    }
+
+    @Test fun `trace_id가 없으면 내보내지 않고 UNVERIFIED다`() {
+        val run = ParentRun("E08", 1, null, Source.LIVE, basis)
+        assertEquals("UNVERIFIED", run.status)
+        assertNull(observedLocationJson(run, true))
+        assertNull(observedRunsJson(run, ParentTiming(GateClock(), HelpMode.CALL_CHILD_LED) { 0L }))
+        assertEquals("VERIFIED", run().status)
+    }
+
+    @Test fun `trace_id는 도움 종료에서만 지워지고 새 도움에 이어지지 않는다`() {
+        val ids = HelpTraceIds()
+        assertNull(ids.current("h1"))
+        ids.inject("h1", "t1")
+        // 통화 종료·네트워크 끊김은 holder에 알리지 않으므로 값이 유지된다
+        assertEquals("t1", ids.current("h1"))
+        assertNull(ids.current("h2"))
+        ids.endHelp("h2")
+        assertEquals("t1", ids.current("h1"))
+        ids.endHelp("h1")
+        assertNull(ids.current("h1"))
+        ids.inject("h2", "t2")
+        assertEquals("t2", ids.current("h2"))
+        assertTrue(runCatching { ids.inject("h3", "https://x.y/t") }.isFailure)
     }
 }

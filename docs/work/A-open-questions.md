@@ -1,6 +1,6 @@
 # A 슬롯 구현 확인 사항
 
-현재 담당: Codex (2026-11-19)
+현재 담당: Claude (2026-11-19, Codex 5시간 제한으로 인계)
 
 ## N-19에서 최신성 검증 실패 시 반환할 결과
 
@@ -65,13 +65,20 @@
    - 코드(`*.kt`)에는 한글 "부모 기기" 문자열이 없다. 이름에 박힌 것은 `ParentResumeGate`, `ParentReconnect`, `ParentGuideSuppression`(`overlay/.../gate/`), `ParentRunEvidence.kt`의 `ParentRun`·`ParentTiming`·`ParentObservation`(`app/.../debug/`)이고, 증거의 `clock_id`가 `parent_monotonic`이다.
    - 문서: `README.md:14`, `docs/architecture.md:15`·`:22`, `docs/implementation-contract.md:43`("부모 단말"), `docs/instruction-policy.md:22`("부모 단말"), `docs/small-nodes/N-02.md:60`, `docs/small-nodes/N-09.md:57`. 파일명·표현 변경은 #6 합의 후 별도 지시로 한다.
 
+## 이슈 #5 trace_id 주입 지점 (2026-11-19)
+
+- `ParentRun.traceId`는 null 허용이다. 서버가 발급한 값만 `HelpTraceIds.inject(helpId, traceId)`로 넣고, 앱이 직접 만들지 않는다.
+- 주입되지 않은 기록은 `status=UNVERIFIED`이며 `observed_*Json`이 null을 돌려줘 판정용으로 내보내지 않는다. 호출 생성 응답 전 기록도 같다.
+- 값은 `endHelp`에서만 지운다. 통화 종료·네트워크 끊김은 holder에 알리지 않으므로 유지되고, 다른 help_id로는 이전 값을 돌려주지 않는다.
+- 봉투 필드명은 바꾸지 않았다. D의 `docs/contracts.md` PR 합의 뒤 필요하면 맞춘다. JVM 테스트 2개 추가(app 9개), 통과.
+
 ## 진행 상태
 
-- 현재 상태: 현재 담당 Claude(2026-11-19, Codex 5시간 제한으로 인계). `A`에서 추가 지시 4(`ParentRunEvidence`, `60d10b6`)와 골격 보안 수정 반영(`6ad1ea3`)을 커밋했고, 추가 지시 5(#6 확인)를 이 문서에 기록했다. 앱·라이브러리 assembleDebug와 JVM 테스트(app 7개 추가 포함) 통과. 골격 브랜치 `A-gradle-skeleton`은 `e32106f`까지 로컬이며 푸시 승인 대기. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 현재 상태: 골격 PR #7(`A-gradle-skeleton`, e32106f 포함)과 #8·#9는 `main`에 머지됐다. 로컬 `A`는 머지 전 기준(merge-base `ce7dc38`)이라 `main`과 갈라져 있다. `A`에서 추가 지시 4~6(`ParentRunEvidence`, #6 확인, #5 trace_id 주입점)을 처리했다. 앱·라이브러리 빌드와 JVM 테스트 통과. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. Windows 한글 경로에서는 상위 폴더를 임시 드라이브 문자(`subst`)에 연결해 실행한다. SDK는 체크아웃 바깥의 `.android-sdk`를 사용한다.
-- 다음 할 일: 사용자 확인 후 `e32106f` 푸시 → 골격 PR(#1·#2) 별도 승인. Android 15 AVD에서 N-07 승인·전환·중지·재승인 확인(사람 몫) 뒤 단계 6 N-20 구현. `trace_id` 발급 주체(D 답변)가 정해지면 주입 방식 확정.
+- 다음 할 일: 사용자 확인 후 `A`를 최신 `main` 위로 정리(rebase 또는 새 브랜치)하고 푸시·PR. Android 15 AVD에서 N-07 확인(사람 몫) 뒤 단계 6 N-20 구현.
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경.
-- 막힌 것: 골격 보안 수정 푸시 승인, N-07 Android 15 실동작 확인, `trace_id` 발급 주체 답변.
+- 막힌 것: `A`와 `main` 정리 방식 승인, N-07 Android 15 실동작 확인, `trace_id` 발급 주체 답변(D).
 
 ## AGENTS.md 테스트 실행 명령 제안
 
