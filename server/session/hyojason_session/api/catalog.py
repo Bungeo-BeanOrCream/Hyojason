@@ -6,7 +6,8 @@
 
 AVD 확인 전 초기값
 - REVERSIBLE_PAIRS: 같은 앱 안에서 '뒤로 가기'로 돌아올 수 있다고 보는 화면 쌍.
-- 근거 코드는 합의된 상태 근거 7개뿐이다. A의 N-09 탐지 근거 코드가 정해지면
+- 근거 코드는 합의된 상태 근거 7개와 B-05 결과 근거(B05_RESULT_EVIDENCE)다. A의 N-09 탐지 근거 코드
+  (C가 제안한 scroll_down:/below_fold:/activated:/alarm_next:<날짜>:<시각> 등)가 A·C·D 합의로 정해지면
   default_catalog(extra_evidence=...)로 더한다.
 """
 
@@ -53,6 +54,13 @@ STATE_EVIDENCE: tuple[str, ...] = (
     "route_shown", "sms_sent_status", "mail_detail_open",
 )
 
+# C(B-05)가 target.located·action.assessed 결과에 싣는 근거 코드. 화면 관찰 근거가 아니라 서버 판단 결과의
+# 출처 표시다 (server/agent/README.md '화면과 근거': "D 카탈로그가 B-05 결과 코드를 허용해야 한다").
+# enumerate_action_candidate: visible_target, verified_reverse_edge / assess_instruction_follow_through: observed:<대상>
+B05_RESULT_EVIDENCE: tuple[str, ...] = (
+    "visible_target", "verified_reverse_edge", *(f"observed:{target}" for target in TARGET_IDS),
+)
+
 REVERSIBLE_PAIRS: tuple[tuple[str, str], ...] = (
     ("settings_home", "settings_display"),
     ("settings_display", "settings_display_size_text"),
@@ -71,7 +79,7 @@ def default_catalog(extra_evidence: Iterable[str] = ()) -> NavigationCatalog:
     return NavigationCatalog(
         screen_apps=SCREEN_APPS,
         target_ids=TARGET_IDS,
-        evidence_codes=tuple(STATE_EVIDENCE) + tuple(extra_evidence),
+        evidence_codes=tuple(STATE_EVIDENCE) + B05_RESULT_EVIDENCE + tuple(extra_evidence),
         reversible_pairs=REVERSIBLE_PAIRS,
     )
 

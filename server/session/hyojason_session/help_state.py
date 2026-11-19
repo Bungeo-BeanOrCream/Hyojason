@@ -261,6 +261,12 @@ class HelpSession:
         with self._lock:
             return self._state.snapshot
 
+    @property
+    def processing_allowed(self) -> bool:
+        """B-05 처리권: 양쪽 분석 동의가 있고 도움이 끝나지 않았다 (server/agent README '연결' 1)."""
+        with self._lock:
+            return self._state.consenting == _ROLES and self._state.snapshot.help_state != "ENDED"
+
     def reduce_help_state(self, event: Event, actor: Actor, run: Run, *, before_commit=None) -> NodeResult[Reduction]:
         """Apply an event once. An optional server hook can veto the candidate before publication."""
         with self._lock:

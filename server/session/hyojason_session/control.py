@@ -171,6 +171,11 @@ class SessionControl:
         with self._lock:
             return self._trail
 
+    def agent_view(self) -> tuple:
+        """B-05에 넘길 같은 순간의 (N-11 snapshot, N-12 방문 이력, 처리권)."""
+        with self._lock:
+            return self._session.snapshot, self._trail, self._session.processing_allowed
+
     def latest_help_id(self, pair_id: str) -> str | None:
         snapshot = self.snapshot
         return snapshot.help_id if snapshot.pair_id == pair_id else None

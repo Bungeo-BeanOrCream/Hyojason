@@ -22,6 +22,7 @@ import json
 import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import FastAPI, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -48,6 +49,8 @@ class ServerConfig:
     pairing: MockPairingService = field(default_factory=MockPairingService)
     # B의 인증·페어·통화와 실제 기기가 붙기 전까지 결과는 FIXTURE다 (AGENTS.md)
     source: Source = Source.FIXTURE
+    # B-05 연결(agent_bridge.AgentBridge). None이면 C 판단 없이 동작한다.
+    agent: Any = None
 
 
 def _bearer(value: str | None) -> str | None:
@@ -72,7 +75,8 @@ def _node_response(result, *, extra: Mapping | None = None) -> JSONResponse:
 
 def create_app(config: ServerConfig) -> FastAPI:
     hub = SessionHub(catalog=config.catalog, approved_slots=config.approved_slots,
-                     pairs=config.authenticator, pairing=config.pairing, source=config.source)
+                     pairs=config.authenticator, pairing=config.pairing, source=config.source,
+                     agent=config.agent)
     app = FastAPI(title="Hyojason control server", version="0.1.0")
     app.state.hub = hub
 
@@ -191,11 +195,32 @@ async def _json_body(request: Request) -> dict:
     return body
 
 
+def agent_from_env(mode: str | None):
+    """HYOJASON_AGENT: off(기본) | fixture(MOCK Zoro-1) | zoro(ZORO_DECIDE_URL 등, server/agent/README.md).
+
+    C 코드(server.agent)를 import하므로 저장소 루트가 PYTHONPATH에 있어야 한다.
+    모델 호출이 WS 이벤트 루프를 막지 않게 작업 스레드에서 돌린다.
+    """
+    mode = (mode or "off").strip().lower()
+    if mode == "off":
+        return None
+    if mode not in ("fixture", "zoro"):
+        raise RuntimeError("HYOJASON_AGENT must be off, fixture or zoro")
+    try:
+        from .agent_bridge import AgentBridge
+    except ModuleNotFoundError as error:
+        raise RuntimeError("HYOJASON_AGENT needs the repository root on PYTHONPATH (server.agent)") from error
+    if mode == "fixture":
+        return AgentBridge.with_fixture_model(threaded=True)
+    return AgentBridge.with_zoro_from_env(threaded=True)
+
+
 def create_app_from_env() -> FastAPI:
-    """HYOJASON_MOCK_TOKENS, HYOJASON_SERVICE_TOKEN 환경 변수로 띄운다 (가짜 값만, .env.example)."""
+    """HYOJASON_MOCK_TOKENS, HYOJASON_SERVICE_TOKEN, HYOJASON_AGENT 환경 변수로 띄운다 (가짜 값만, .env.example)."""
     tokens = os.environ.get("HYOJASON_MOCK_TOKENS")
     service_token = os.environ.get("HYOJASON_SERVICE_TOKEN")
     if not tokens or not service_token:
         raise RuntimeError("set HYOJASON_MOCK_TOKENS and HYOJASON_SERVICE_TOKEN (see server/session/.env.example)")
     return create_app(ServerConfig(authenticator=MockTokenAuthenticator.from_spec(tokens),
-                                   service_token=service_token))
+                                   service_token=service_token,
+                                   agent=agent_from_env(os.environ.get("HYOJASON_AGENT"))))

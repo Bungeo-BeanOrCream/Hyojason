@@ -1,4 +1,4 @@
-현재 담당: Codex (N-24·N-25) · Claude Code (N-22·N-23, SessionControl 연동) (2026-11-19) · D 슬롯. N-11·N-12 변경은 커밋 902c36f~83c0187에 있다.
+현재 담당: Codex (N-24·N-25) · Claude Code (N-22·N-23, SessionControl 연동 2026-11-19 · B-05 연결 2026-11-20) · D 슬롯. N-11·N-12 변경은 커밋 902c36f~83c0187에 있다.
 
 # D 작업 상태 (B-04 · B-07 · B-08 통합)
 
@@ -14,6 +14,7 @@
 | [N-23 purge_help_and_restart](../small-nodes/N-23.md) | 서버 로직 + 클라이언트 참조 구현 + N-11 `help.purge` 효과로 모든 종료에 연동, FIXTURE 테스트 통과. 실기기 UNVERIFIED | `tests/test_n23_purge_help_and_restart.py` (23.1~23.5 + 완료 기준), `test_session_completion.py` |
 | B-07 흐름 (N-22→N-11→N-23→N-13) | 실제 N-11(`SessionControl`) 위에서 확인. 제어 서버 경로로도 확인(`test_control_server.py`) | `tests/test_session_completion.py`, 격리판 `tests/test_b07_integration.py` (B07.1~B07.4) |
 | 제어 서버 (FastAPI, `hyojason_session/api`) | 뼈대 구현: `WS /v1/events`, `GET /v1/help/current`, 페어·통화 경로(MOCK), 서버 내부 경로. 실제 uvicorn으로 기동·WS 왕복 확인. 결과는 FIXTURE | `tests/test_control_server.py` |
+| B-05 연결 (D → C → D, `api/agent_bridge.py`) | C의 `B05Workflow`를 제어 서버에 연결(결정 메모 12). 발화 → 지시·목표 초안, 지시 → 대상 위치, 관찰 → 수행 판정·복귀·통화 후 안내, 도착 → N-22 → 자녀. 결과 이벤트는 지원 대상 기기에만. C 코드는 그대로, Zoro-1만 MOCK. FIXTURE 검증 | `tests/test_b05_bridge.py`, `test_control_server_agent.py` |
 | [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현(Codex). 실제 AVD 상태 수집·설정 기록/원복·AVD 생성 안내 도구(`demo_env`) 추가. 가짜 adb로만 검증, 실제 AVD 미확인 | `tests/test_n24_prepare_demo_fixtures.py`, `test_n24_demo_env.py` |
 | [N-25 evaluate_end_to_end](../small-nodes/N-25.md) | 지정 표본의 증거·출처·판정 및 모델·비용 보고 구현. FIXTURE 검증 | `tests/test_n25_evaluate_end_to_end.py` · [실행 방법](../../demo/fixtures/README.md) |
 
@@ -23,10 +24,12 @@
 
 | Mock | 대신하는 것 | 교체 시점 |
 |---|---|---|
-| 합성 통화·동의·발화, 화면 메타데이터, 지시·목표·위치·수행·완료 이벤트 | N-02·03·06·07·10·15·22·27·28의 인증·관찰·판정 결과 | 각 생산 노드 연동 시 |
+| 합성 통화·동의·발화, 화면 메타데이터, 지시·목표·위치·수행·완료 이벤트 | N-02·03·06·07·10·22의 인증·관찰·판정 결과. N-15·16·17·18·27·28은 B-05 연결 시험에서 C 실코드를 쓴다 | 각 생산 노드 연동 시 |
+| `api.agent_bridge.fixture_zoro` | N-14 Zoro-1 호출 (C·L40S). 질문의 첫 선택지(또는 지정 선택지)를 0.95로 고름 | L40S 준비 뒤 `HYOJASON_AGENT=zoro` (`ZORO_DECIDE_URL` 등) |
+| speech.final 내부 경로 주입 | B-02 확정 발화 (B). `POST /v1/internal/calls/{id}/events`로 넣는다(#14 다음 계획 3) | B 음성 서버가 같은 경로로 보내면 교체 |
 | `mocks.InMemoryHelpStore` | N-13·N-23 격리 단위 테스트의 N-11 상태 (실제 N-11은 `control.SessionControl`) | 격리 테스트 전용으로 유지 |
 | `mocks.ScopedBuffer(NAVIGATION_TRAIL)` | 격리 테스트의 N-12 이력. 실제 경로는 `control._TrailPurge` | 격리 테스트 전용 |
-| `mocks.ScopedBuffer(INFERENCE_RESULTS)` / `control._NoDataHeld` | B-05 추론 후보·제안·판단 결과 (C). 세션 서버에 아직 저장소가 없어 실제 경로는 빈 자리 | C의 결과 저장이 서버에 생기면 `result_stores`로 연결 |
+| `mocks.ScopedBuffer(INFERENCE_RESULTS)` / `control._NoDataHeld` | B-05 판단 결과 (C). B-05 연결을 켜면 실제 저장소 `agent_bridge.InferenceResults`가 들어가 N-23이 도움 종료 때 지운다. 끄면 빈 자리 | 격리 테스트·연결 끔 상태 전용 |
 | `mocks.ScopedBuffer(PENDING_UTTERANCES)` / `control._NoDataHeld` | B-02 대기 확정 발화 (B). 실제 경로는 빈 자리 | B의 발화 큐가 서버에 생기면 `result_stores`로 연결 |
 | `mocks.RecordingEventSink` | WS /v1/events 제어 채널 (D). `SessionControl(events=...)`로 주입, 없으면 전달 실패로 기록 | 제어 엔드포인트 구현 시 |
 | `mocks.StaticPairDirectory` | N-01 resolve_pair 페어 승인 (B), N-13 격리 테스트 | B의 N-01 연동 시 |
@@ -70,6 +73,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 남은 팀 결정: assisted_role 도입과 기본값, 완료 권한, 자녀 발신 P0(지금 D 서버는 부모 발신만), Basis·contracts.md 변경. D 의견: Basis에 새 키는 필요 없다(임시 연결 = help_id, assisted_role은 help_id에 고정, 캡처는 projection_epoch).
 
 11. **시연 기계는 팀 Apple Silicon Mac — 결정(2026-11-19, 사용자).** 설계(ARM64 AVD, 같은 Mac에 두 AVD)대로 간다. 그 Mac에서 `bash demo/fixtures/setup_avd_mac.sh` 한 번으로 AVD 두 대(부모 5554·자녀 5556, Android 15·ko-KR·Asia/Seoul) 생성·부팅·상태 수집까지 한다. 최종 리허설과 시연을 같은 기계에서 해 N-25 기록의 기기 정보가 시연과 일치하게 한다. 어느 팀원의 Mac인지는 아직 모른다.
+12. **B-05 연결 방식 — D 결정(2026-11-20).** C의 README '연결'과 contracts 이벤트 표를 따른다. (1) N-11이 이벤트를 받고 앱 전달을 마친 뒤 C를 부른다 — 부모 t0(instruction.accepted)가 위치 탐색을 기다리지 않는다. (2) C에는 같은 순간의 snapshot·N-12 이력·처리권(양쪽 동의, 도움 진행 중)을 한 번에 넘기고, 결과는 그 순간의 Basis로 N-11에 넣는다. 오래된 결과는 C의 `read_current`와 N-11의 `STALE_BASIS`가 두 번 거른다. (3) target.located·action.assessed는 N-11이 받아들였을 때만, recovery.ready·guide.proposed는 판단 범위가 최신일 때만 지원 대상 기기로 보낸다. 도착은 N-22를 거친다. (4) 서버에서는 작업 스레드 하나가 차례로 처리해 모델 호출이 WS 이벤트 루프를 막지 않는다. (5) C의 결과 근거 코드(`visible_target`, `verified_reverse_edge`, `observed:<대상>`)를 카탈로그에 더했다(`catalog.B05_RESULT_EVIDENCE`). 화면 관찰 근거 형식은 A·C·D 합의 대상이라 더하지 않았다(아래 '막힌 것').
 
 ## 다음 할 일
 
@@ -77,13 +81,15 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 이슈 #10: B의 페어·통화·토큰 판단 함수와 인증 토큰 형식을 받아 `MockPairingService`·`MockTokenAuthenticator`를 교체.
    - 봉투 `trace_id` 합의(아래 2) 뒤 송신 이벤트에 싣기. 지금 trace_id는 `POST /v1/calls` 응답과 서버 내부 결과에만 있다.
    - A·B 앱이 WS에 붙어 실제 메시지로 확인 (지금은 테스트 클라이언트·uvicorn 스모크뿐).
+   - B-05 연결(결정 메모 12)은 끝났다(FIXTURE). 실제 Zoro-1은 `HYOJASON_AGENT=zoro`로 켠다. 위험 동작 문구(`B05Output.warning`)를 부모에게 보내는 이벤트는 계약에 없어 아직 보내지 않는다 — contracts PR에서 정한다.
 2. **이슈 #6 합의**: 결정 메모 10의 남은 팀 결정. 합의되면 이름 변경과 `docs/contracts.md` 반영, B 서버(`server/voice`)의 `help.link_approved` 연결.
 3. **제어 이벤트 봉투에 `trace_id` 추가 합의** (이슈 #5, A·B). 발급은 서버로 결정됨(결정 메모 6). 합의되면 `docs/contracts.md` PR에 함께 넣고, 제어 서버 구현 때 통화 단위 trace_id를 발급·전달한다.
 4. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
-5. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
+5. ~~D → main PR~~ — PR #17로 머지됨(2026-11-19). 이후 main을 D에 반영(2026-11-20, 충돌 없음).
 6. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
 7. **시연 AVD 준비 (N-24)**: 팀 Mac(결정 메모 11)에서 `setup_avd_mac.sh` 실행 → 사람 확인 항목 채우기 → `demo_verify prepare --source LIVE`. 효자손 APK(A·B)가 나오기 전에는 `ROLE_APP_NOT_READY`로 막힌다.
-8. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
+8. **C·D 계약 차이 맞추기 (C와 협의)**: 아래 '막힌 것'의 목표 슬롯 이름과 화면 근거 형식. 맞추기 전에는 SET_TIMEOUT만 C → D → 자녀 도착까지 이어진다.
+9. [N-24·N-25 리허설 준비와 검증](../../demo/fixtures/README.md)에 따라 A·B 각 1회의 증거 경로를 먼저 연결하고, 각 5회 및 고정 표본을 확인 (이슈 #5).
 
 ## 하면 안 되는 일
 
@@ -99,8 +105,13 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
 - 시연용 팀 Mac의 담당자·기종(Apple Silicon 여부)이 아직 확인되지 않음. 확인되면 그 Mac에서 `setup_avd_mac.sh` 실행.
 - 이슈 #6: 지원 대상 방식·완료 권한·자녀 발신·Basis는 팀 합의 대기 (A·B는 의견 남김, C 대기).
-- 이슈 #10: 엔드포인트 분담에 대한 B 동의, B 판단 함수 위치, 인증 토큰 형식 답변 대기. 그 전에는 페어·통화 자리에 Mock.
+- 이슈 #10: B가 분담 동의, 함수 위치(`server/voice/hyojason_voice/pair.py`·`consent.py`·`call.py`), opaque Bearer 토큰을 제안했다. D 동의 답변은 아직 안 올림. B 코드가 main에 오기 전까지 페어·통화 자리에 Mock.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
+- **C(B-05)와 D(이슈 #3·goals.json) 계약 차이** — C 코드(`server/agent`)는 D가 고치지 않는다. C와 합의해 한쪽을 맞춘다.
+  - 목표 슬롯: SET_FONT `delta`(C) ↔ `steps`(D), MAP_ROUTE `destination_id: demo_place` ↔ `place: demo-…`, SMS_SEND `demo_recipient·demo_message` ↔ `demo-recipient·demo-sms`, MAIL_OPEN `demo_mail` ↔ `demo-mail`. 지금은 N-11이 C의 목표 초안을 거절한다(`test_known_gap_c_goal_slots_differ_from_d_catalog`). SET_TIMEOUT·CLOCK_ALARM은 일치.
+  - 도착 근거: CLOCK_ALARM `alarm_next:<날짜>:<시각>`(C) ↔ `alarm_next_tomorrow`(이슈 #3 합의). MAP_ROUTE·SMS_SEND도 C가 `route_destination:…`·`sms_sent:…`를 더 요구한다. A가 합의대로 보내면 C가 도착을 못 찾고, C 형식으로 보내면 D 카탈로그가 거절한다.
+  - 화면 아래·수행 근거: C가 제안한 `scroll_down:<영역>`·`below_fold:<영역>:<대상>`·`activated:<대상>`은 A의 N-09 공급과 D 카탈로그 합의가 필요하다. N-11의 수행 판정(연속 전이)은 새 화면에 근거 코드가 하나 이상 있어야 해서 A의 탐지 근거 코드가 정해져야 한다(시험은 `navigation_transition`으로 대신).
+  - C는 자녀 발화만 지시로 본다(`speaker_role == child`). #6에서 자녀가 지원 대상인 도움을 넣으면 C도 바뀌어야 한다.
 - 이슈 #1 Android 골격 전: 클라이언트 쪽 N-13·N-23 처리의 실제 구현·검증 불가.
 - 두 AVD의 실제 통화·캡처·자산과 L40S 모델·비용 증거가 모이기 전까지 N-24·N-25의 라이브 결과는 `UNVERIFIED`.

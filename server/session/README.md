@@ -37,6 +37,26 @@ uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 
 앱 인증은 `Authorization: Bearer <token>`(**MOCK** B-01). WS 메시지 형식은 [계약 추가 제안 7장](../../docs/work/D-role-view-contract.md).
 
+### B-05(C 판단) 연결
+
+`HYOJASON_AGENT`로 켠다. C 코드(`server/agent`)를 import하므로 저장소 루트를 `PYTHONPATH`에 넣는다.
+
+```bash
+cd server/session
+PYTHONPATH=../.. HYOJASON_AGENT=fixture uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
+```
+
+| 값 | 동작 |
+|---|---|
+| `off` (기본) | C 판단 없이 앱·내부 이벤트만 처리 |
+| `fixture` | C의 `B05Workflow`를 그대로 쓰고 Zoro-1만 **MOCK**(질문의 첫 선택지를 0.95로 고름). 결과는 FIXTURE |
+| `zoro` | 실제 Zoro-1 (`ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION`·`ZORO_DECIDE_TOKEN`, [server/agent](../agent/README.md)) |
+
+B-02가 붙기 전에는 내부 경로로 자녀 발화를 넣는다: `POST /v1/internal/calls/{call_id}/events`, body `{"type": "speech.final", "payload": {"speaker_role": "CHILD", "utterance_id": "t1", "utterance_seq": 1, "text": "..."}}`.
+그러면 N-11 → C → N-11 순서로 지시(`instruction.accepted`)·목표(`goal.updated`)·대상 위치(`target.located`)가 부모 WS로 간다.
+화면 관찰 뒤에는 `action.assessed`·`recovery.ready`·`guide.proposed`가 부모에게 가고, 도착 추정은 N-22를 거쳐 자녀에게 `arrival.suspected`로 간다.
+결과 이벤트는 지원 대상 기기에만 간다. 흐름과 규칙은 [결정 메모 12](../../docs/work/D-status.md), 코드는 `hyojason_session/api/agent_bridge.py`.
+
 ## 구조
 
 | 경로 | 내용 |
@@ -53,7 +73,7 @@ uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 | `hyojason_session/demo_fixtures.py` | **N-24** AVD·앱·시나리오 준비 점검 |
 | `hyojason_session/demo_evaluation.py` | **N-25** V-01~V-07 판정과 V-08 모델·비용 확인 |
 | `hyojason_session/demo_verify.py` | N-24·N-25 JSON 실행 도구 ([예시와 리허설 절차](../../demo/fixtures/README.md)) |
-| `hyojason_session/api/` | **FastAPI 제어 서버**: `app.py`(경로), `hub.py`(통화·연결·송신), `wire.py`(봉투·권한·오류 코드), `catalog.py`(화면 프로필·목표 슬롯) |
+| `hyojason_session/api/` | **FastAPI 제어 서버**: `app.py`(경로), `hub.py`(통화·연결·송신), `wire.py`(봉투·권한·오류 코드), `catalog.py`(화면 프로필·목표 슬롯·B-05 결과 근거), `agent_bridge.py`(B-05 연결: D → C → D) |
 | `hyojason_session/views.py` | RoleSnapshot·ParentView·ChildView ([제안서](../../docs/work/D-role-view-contract.md)) |
 | `hyojason_session/client_resume_gate.py` | N-13 클라이언트 규칙 참조 구현 (Android Kotlin 이식용, 서버에서 실행 안 함) |
 | `hyojason_session/client_cleanup.py` | N-23 클라이언트 규칙 참조 구현 (부모 로컬 우선 정리, 완료 문구 1회) |

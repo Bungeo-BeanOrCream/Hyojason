@@ -7,6 +7,7 @@
 - 송신: N-11 효과(앱 대상만), N-23 help.ended, 상태가 바뀔 때마다 N-21 역할 화면(help.view).
 - 지원 대상(#6, 기본 부모)의 상대 기기에는 wire.COUNTERPART_DELIVERABLE에 있는 이벤트만 나간다.
 - trace_id는 도움마다 새로 쓴다(새 코드 승인으로 새 도움이 열리면 바뀜).
+- B-05(C 판단): agent를 주면 N-11 적용·전달 뒤 agent_bridge가 C를 부르고 결과를 apply_internal로 다시 넣는다.
 상태는 메모리에만 있다(DB 없음). 로그를 남기지 않는다.
 """
 
@@ -92,13 +93,16 @@ class _PairReader:
 class SessionHub:
     def __init__(self, *, catalog: NavigationCatalog, approved_slots: Mapping[str, Callable],
                  pairs: PairDirectory, pairing, source: Source = Source.FIXTURE,
-                 result_stores: Callable[[], Sequence[HelpScopedStore]] = tuple) -> None:
+                 result_stores: Callable[[], Sequence[HelpScopedStore]] = tuple,
+                 agent=None) -> None:
+        """agent: B-05 연결(agent_bridge.AgentBridge). 없으면 C 판단 없이 앱·내부 이벤트만 처리한다."""
         self._catalog = catalog
         self._slots = dict(approved_slots)
         self._pairs = pairs
         self._pairing = pairing
         self._source = Source(source)
         self._result_stores = result_stores
+        self._agent = agent
         self._lock = threading.RLock()
         self._calls: dict[str, SessionControl] = {}
         self._pair_calls: dict[str, list[str]] = {}
@@ -180,10 +184,13 @@ class SessionHub:
             if current is not None and current.snapshot.call_state != "ENDED":
                 raise WireError("CONFLICT", "CALL_ALREADY_OPEN")
             pair = actor.pair_id
+            stores = list(self._result_stores())
+            if self._agent is not None:
+                stores.append(self._agent.results)  # N-23이 도움 종료 때 B-05 기록도 지운다
             control = SessionControl(
                 pair, new_id("call"), new_id("help"), catalog=self._catalog, approved_slots=self._slots,
                 source=self._source.value, events=_PairSink(self, pair), ledger=self._ledger_of(pair),
-                tombstones=self.tombstones_of(pair), result_stores=self._result_stores(),
+                tombstones=self.tombstones_of(pair), result_stores=stores,
                 trace_id=new_id("trace"), assisted_role=assisted_role,
             )
             call_id = control.snapshot.call_id
@@ -285,6 +292,10 @@ class SessionHub:
         self.control_for(call_id, actor)
         return self._pairing.rtc_token(actor, call_id)
 
+    def apply_internal(self, control: SessionControl, kind: str, payload: Mapping, basis: Basis) -> Update:
+        """B-05 결과(지시·목표 초안, 위치, 수행 판정)를 서버 이벤트로 N-11에 넣는다. 판단한 범위(basis)로 검사한다."""
+        return self._apply(control, kind, "SERVER", payload, basis=basis)
+
     # --- 내부 -----------------------------------------------------------------
     def _apply(self, control: SessionControl, kind: str, role: str, payload: Mapping | None = None, *,
                event_id: str | None = None, help_id: str | None = None,
@@ -295,6 +306,9 @@ class SessionHub:
         update = control.apply(event, Actor(role, s.pair_id, s.call_id), basis or s.basis)
         if dispatch and update.state.status == "success" and update.state.outcome != "duplicate_ignored":
             self._dispatch(control, update)
+            if self._agent is not None:
+                # 앱 전달(instruction.accepted 등) 뒤에 C 판단을 부른다: 부모 t0가 위치 탐색을 기다리지 않는다
+                self._agent.after_apply(self, control, kind, payload or {}, s, update)
         return update
 
     def _apply_or_raise(self, control: SessionControl, kind: str, role: str, *,
