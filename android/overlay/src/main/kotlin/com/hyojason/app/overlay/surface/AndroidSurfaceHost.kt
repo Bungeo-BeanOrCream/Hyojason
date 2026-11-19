@@ -3,6 +3,7 @@ package com.hyojason.app.overlay.surface
 import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.os.Build
 import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
 import android.view.Gravity
@@ -68,6 +69,14 @@ class AndroidSurfaceHost(
         }
         val p = params(rect.right - rect.left, rect.bottom - rect.top, touchable = false).apply {
             x = rect.left; y = rect.top
+            // The rect comes from the whole-display capture (origin at the top of the screen). Without this
+            // the overlay is laid out below the status bar and every border landed one status bar too low.
+            flags = flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) fitInsetsTypes = 0
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         if (!add(view, p)) return false
         border = view
