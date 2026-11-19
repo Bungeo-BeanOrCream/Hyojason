@@ -16,6 +16,7 @@ from .common.decisions import ArrivalDecision
 from .common.enums import ActorRole, ArrivalState, CleanupScope, EndReason, HelpCommand, Role, Source
 from .common.events import ControlEvent
 from .common.result import Basis, NodeResult, ResultRef, new_id
+from .common.roles import is_stop, reason_actor
 from .common.types import ActorContext, HelpSnapshot
 from .completion import CompletionInput, CompletionLedger, resolve_arrival_or_completion
 from .help_state import Actor, Event, HelpSession
@@ -43,13 +44,6 @@ class Resolution:
     update: Update | None
 
 
-# 종료 사유 → N-23에 넘길 요청 역할 (CONSENT_REVOKED는 철회한 쪽)
-_END_ROLE = {
-    EndReason.CHILD_COMPLETED: ActorRole.CHILD,
-    EndReason.PARENT_STOPPED: ActorRole.PARENT,
-    EndReason.NO_GOAL_AT_HANGUP: ActorRole.AGENT,
-}
-_CONSENT_ENDS = (EndReason.PARENT_STOPPED, EndReason.CONSENT_REVOKED)
 
 
 class _NoChannel:
@@ -134,16 +128,19 @@ class SessionControl:
                  ledger: CompletionLedger | None = None,
                  tombstones: TombstoneRegistry | None = None,
                  result_stores: Sequence[HelpScopedStore] = (),
-                 trace_id: str | None = None):
+                 trace_id: str | None = None,
+                 assisted_role: Role | str = Role.PARENT):
         """events: 역할별 제어 채널(WS). ledger·tombstones: 통화를 넘어 페어 단위로 공유할 수 있다.
         result_stores: B-05 판단 결과·B-02 대기 발화처럼 이 서버가 도움 단위로 들고 있는 저장소.
         trace_id: 서버가 통화를 만들 때 발급한 추적 ID(결정 메모 6). 주면 이 통화의 모든 노드 결과가
-        같은 trace_id를 쓴다. 없으면 호출마다 새로 만든다(격리 테스트용).
+        같은 trace_id를 쓴다. 없으면 호출마다 새로 만든다(격리 테스트용). 새 도움이 열리면
+        (help.link_approved) 새 trace_id로 바꾼다 — 도움 1회가 실행 1회다(결정 메모 6 보완).
+        assisted_role: 첫 도움의 지원 대상 기기(#6). 다음 도움은 help.link_approved가 정한다.
         """
         self._session = HelpSession(
             pair_id, call_id, help_id, screen_apps=catalog.screen_apps,
             target_ids=catalog.target_ids, evidence_codes=catalog.evidence_codes,
-            approved_slots=approved_slots,
+            approved_slots=approved_slots, assisted_role=Role(assisted_role).value,
         )
         self._catalog = catalog
         self._source = source
@@ -225,11 +222,14 @@ class SessionControl:
                     return trail.last_event_seq
                 return None
 
+            previous_help = self._session.snapshot.help_id
             state = self._session.reduce_help_state(event, actor, run, before_commit=stage)
             purge = None
             if state.status == "success" and state.outcome != "duplicate_ignored":
                 self._trail = trail
                 self._source = source
+                if self._trace_id is not None and state.data.snapshot.help_id != previous_help:
+                    self._trace_id = new_id("trace")  # 새 도움 = 새 실행
                 if any(effect.kind == "help.purge" for effect in state.data.side_effects):
                     purge = self._purge(state, actor.role)
             return Update(state, navigation, purge)
@@ -238,7 +238,13 @@ class SessionControl:
         """N-11이 도움을 끝낸 직후 N-23으로 남은 범위를 정리하고 help.ended를 보낸다."""
         snapshot = state.data.snapshot
         reason = snapshot.end_reason
-        role = ActorRole(actor_role) if reason is EndReason.CONSENT_REVOKED else _END_ROLE[reason]
+        actor = reason_actor(reason)
+        if actor is not None:
+            role = ActorRole(actor.value)
+        elif reason is EndReason.CONSENT_REVOKED:
+            role = ActorRole(actor_role)  # 철회한 쪽
+        else:
+            role = ActorRole.AGENT  # 목표 없는 통화 종료
         shared = snapshot.to_shared_snapshot()
         return purge_help_and_restart(
             PurgeInput(
@@ -246,7 +252,7 @@ class SessionControl:
                 end_reason=reason,
                 rtc_active=snapshot.call_state in ("ACTIVE", "RECONNECTING"),
                 role=role,
-                consent_active=reason not in _CONSENT_ENDS,
+                consent_active=not (is_stop(reason) or reason is EndReason.CONSENT_REVOKED),
             ),
             pair_id=shared.pair_id, current=shared, stores=self._purge_stores,
             tombstones=self._tombstones, events=self._events,

@@ -143,9 +143,9 @@ def reconcile_reconnect(
         return run.error(code, "project_role_view", basis, input_refs=(view.ref,))
     run.step("project_role_view", StepStatus.SUCCESS)
 
-    # 5. 재관찰 결정: 부모만. 일시정지(관찰 중단·미승인)면 켜지 않는다.
+    # 5. 재관찰 결정: 지원 대상 기기만(#6, 기본 부모). 일시정지(관찰 중단·미승인)면 켜지 않는다.
     must_reobserve = False
-    if req.role is not Role.PARENT:
+    if req.role is not current.assisted_role:
         run.step("reobserve_decision", StepStatus.SKIPPED, ErrorCode.NOT_APPLICABLE.value)
     elif store.observation_paused(current.help_id):
         run.step("reobserve_decision", StepStatus.SKIPPED, ErrorCode.NO_CONSENT.value)

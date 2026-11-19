@@ -45,6 +45,8 @@
       "enum": [
         "CHILD_COMPLETED",
         "PARENT_STOPPED",
+        "PARENT_COMPLETED",
+        "CHILD_STOPPED",
         "NO_GOAL_AT_HANGUP",
         "CONSENT_REVOKED"
       ]

@@ -33,6 +33,7 @@ class ClientAction(StrEnum):
 @dataclass
 class ClientResumeGate:
     role: Role
+    assisted_role: Role = Role.PARENT  # 이번 도움의 지원 대상 기기 (#6). 이 기기만 표시한다
     help_id: str | None = None
     goal_revision: int | None = None
     mode_revision: int | None = None
@@ -43,7 +44,7 @@ class ClientResumeGate:
 
     def apply_reconnect(self, data: ReconnectData) -> list[ClientAction]:
         out: list[ClientAction] = []
-        if self.role is Role.PARENT:
+        if self.role is self.assisted_role:
             out += [ClientAction.CLEAR_OVERLAY, ClientAction.CANCEL_TIMERS]
         self.resume_event_seq = data.server_event_seq
         self.reobserved_screen_revision = None
@@ -77,7 +78,7 @@ class ClientResumeGate:
 
     def can_display(self, guide_basis: Basis) -> bool:
         """서버 안내(GuideProposal 등)의 Basis를 보고 표시해도 되는지 판단한다."""
-        if self.role is not Role.PARENT or self.help_id is None:
+        if self.role is not self.assisted_role or self.help_id is None:
             return False
         if self.awaiting_reobserve or self.reobserved_screen_revision is None:
             return False

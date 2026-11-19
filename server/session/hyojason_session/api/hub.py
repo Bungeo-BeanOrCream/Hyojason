@@ -5,7 +5,8 @@
 - 수신: 앱 이벤트 → SessionControl.apply, help.complete/stop → submit_command(N-22),
   서버 내부 이벤트(B-02 발화, C의 판단, N-03 통화 상태) → apply, N-18 도착 → submit_arrival.
 - 송신: N-11 효과(앱 대상만), N-23 help.ended, 상태가 바뀔 때마다 N-21 역할 화면(help.view).
-- 자녀에게는 wire.CHILD_DELIVERABLE에 있는 이벤트만 나간다.
+- 지원 대상(#6, 기본 부모)의 상대 기기에는 wire.COUNTERPART_DELIVERABLE에 있는 이벤트만 나간다.
+- trace_id는 도움마다 새로 쓴다(새 코드 승인으로 새 도움이 열리면 바뀜).
 상태는 메모리에만 있다(DB 없음). 로그를 남기지 않는다.
 """
 
@@ -119,8 +120,12 @@ class SessionHub:
             if self._connections.get(key) is conn:
                 del self._connections[key]
 
+    def assisted_of(self, pair_id: str) -> Role:
+        control = self.current_control(pair_id)
+        return Role(control.snapshot.assisted_role) if control is not None else Role.PARENT
+
     def deliver(self, pair_id: str, role: Role, event: ControlEvent) -> bool:
-        if role is Role.CHILD and event.type not in wire.CHILD_DELIVERABLE:
+        if role is not self.assisted_of(pair_id) and event.type not in wire.COUNTERPART_DELIVERABLE:
             return False
         with self._lock:
             conn = self._connections.get((pair_id, role))
@@ -166,9 +171,10 @@ class SessionHub:
             raise WireError("FORBIDDEN", "UNAUTHORIZED")
         return control
 
-    def create_call(self, actor: ActorContext) -> SessionControl:
+    def create_call(self, actor: ActorContext, assisted_role: Role = Role.PARENT) -> SessionControl:
+        """부모 발신(자녀 발신 P0 여부는 #6 팀 결정). assisted_role은 첫 도움의 지원 대상."""
         if actor.role is not Role.PARENT:
-            raise WireError("FORBIDDEN", "UNAUTHORIZED")  # 부모가 발신한다
+            raise WireError("FORBIDDEN", "UNAUTHORIZED")
         with self._lock:
             current = self.current_control(actor.pair_id)
             if current is not None and current.snapshot.call_state != "ENDED":
@@ -178,7 +184,7 @@ class SessionHub:
                 pair, new_id("call"), new_id("help"), catalog=self._catalog, approved_slots=self._slots,
                 source=self._source.value, events=_PairSink(self, pair), ledger=self._ledger_of(pair),
                 tombstones=self.tombstones_of(pair), result_stores=self._result_stores(),
-                trace_id=new_id("trace"),
+                trace_id=new_id("trace"), assisted_role=assisted_role,
             )
             call_id = control.snapshot.call_id
             self._calls[call_id] = control
@@ -210,6 +216,7 @@ class SessionHub:
             control = self.control_for(env["call_id"], actor)
             if control is not self.current_control(actor.pair_id):
                 raise WireError("CONFLICT", "STALE_BASIS")  # 지난 통화로 온 이벤트
+            wire.check_sender(env, actor, Role(control.snapshot.assisted_role))
             if env["type"] in wire.COMMANDS:
                 if env["help_id"] is None:
                     raise WireError("INVALID_EVENT")

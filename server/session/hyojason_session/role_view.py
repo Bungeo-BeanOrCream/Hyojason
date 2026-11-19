@@ -4,6 +4,9 @@ docs/small-nodes/N-21.md
 - 결과: success/view_ready, success/view_waiting, error/null
 - 해당 역할의 view만 채우고 다른 역할 view는 null
 - 자녀에게는 call_state, can_complete, arrival_indicator만 보낸다
+
+역할 중립(#6): ParentView는 '지원 대상 기기'의 화면, ChildView는 '상대 기기'의 화면이다.
+기본 지원 대상은 부모라 지금은 이름 그대로다. 타입·필드 이름은 #6 합의 뒤 한 번에 바꾼다.
 """
 
 from __future__ import annotations
@@ -12,8 +15,9 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from .common.enums import ArrivalState, CallState, EndReason, HelpState, Mode, Role, Source
+from .common.enums import ArrivalState, CallState, HelpState, Mode, Role, Source
 from .common.result import Basis, ErrorCode, NodeResult, NodeRun, ResultRef, StepStatus
+from .common.roles import completed_reason, counterpart, stopped_reason
 from .common.types import ActorContext, HelpSnapshot, snapshot_problems
 from .views import (
     COMPLETION_MESSAGE_KEY,
@@ -98,15 +102,15 @@ def project_role_view(
     else:
         run.step("select_fields", StepStatus.SUCCESS)
 
-    if inp.viewer_role is Role.PARENT:
+    if inp.viewer_role is snapshot.assisted_role:
         data = RoleViewData(
-            role=Role.PARENT,
+            role=inp.viewer_role,
             parent_view=_parent_view(snapshot, waiting, arrival_shown),
             child_view=None,
         )
     else:
         data = RoleViewData(
-            role=Role.CHILD,
+            role=inp.viewer_role,
             parent_view=None,
             child_view=_child_view(snapshot, arrival_shown, inp.online),
         )
@@ -137,9 +141,9 @@ def _arrival_visible(s: HelpSnapshot, arrival_state: ArrivalState) -> bool:
 
 def _parent_status(s: HelpSnapshot, waiting: bool, arrival_shown: bool) -> ParentStatus:
     if s.help_state is HelpState.ENDED:
-        if s.end_reason is EndReason.CHILD_COMPLETED:
+        if s.end_reason is completed_reason(counterpart(s.assisted_role)):
             return ParentStatus.COMPLETED
-        if s.end_reason is EndReason.PARENT_STOPPED:
+        if s.end_reason is stopped_reason(s.assisted_role):
             return ParentStatus.STOPPED
         return ParentStatus.ENDED
     if waiting:
@@ -179,7 +183,7 @@ def _parent_view(s: HelpSnapshot, waiting: bool, arrival_shown: bool) -> ParentV
         can_stop_guidance=not ended,
         completion_message_key=(
             COMPLETION_MESSAGE_KEY
-            if ended and s.end_reason is EndReason.CHILD_COMPLETED
+            if ended and s.end_reason is completed_reason(counterpart(s.assisted_role))
             else None
         ),
     )

@@ -57,10 +57,16 @@ class ArrivalState(StrEnum):
 
 
 class EndReason(StrEnum):
-    """도움 종료 사유. N-23의 help.ended(reason)과 같은 값."""
+    """도움 종료 사유. N-23의 help.ended(reason)과 같은 값.
+
+    완료는 지원 대상의 상대가, 안내 끄기는 지원 대상이 한다(#6 제안). 값 이름은 실제로 누른 가족
+    역할이다: 부모 지원이면 CHILD_COMPLETED / PARENT_STOPPED, 자녀 지원이면 PARENT_COMPLETED / CHILD_STOPPED.
+    """
 
     CHILD_COMPLETED = "CHILD_COMPLETED"
     PARENT_STOPPED = "PARENT_STOPPED"
+    PARENT_COMPLETED = "PARENT_COMPLETED"
+    CHILD_STOPPED = "CHILD_STOPPED"
     NO_GOAL_AT_HANGUP = "NO_GOAL_AT_HANGUP"
     CONSENT_REVOKED = "CONSENT_REVOKED"
 

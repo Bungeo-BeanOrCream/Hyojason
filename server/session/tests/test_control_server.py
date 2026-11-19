@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
 from hyojason_session.api.app import ServerConfig, create_app, create_app_from_env  # noqa: E402
-from hyojason_session.api.wire import CHILD_DELIVERABLE  # noqa: E402
+from hyojason_session.api.wire import COUNTERPART_DELIVERABLE  # noqa: E402
 from hyojason_session.common.enums import Role  # noqa: E402
 from hyojason_session.common.types import ActorContext  # noqa: E402
 from hyojason_session.mocks import MockTokenAuthenticator  # noqa: E402
@@ -161,7 +161,7 @@ def test_child_instruction_reaches_parent_only_and_views_are_role_scoped(call):
     parent_view = of(parent, "help.view")[-1]["payload"]["parent_view"]
     assert (parent_view["status"], parent_view["goal"]["goal_id"]) == ("CALL_GUIDING", "SET_TIMEOUT")
     # 자녀: 지시·목표 이벤트 없음, 화면은 세 키뿐
-    assert set(types(child)) <= CHILD_DELIVERABLE
+    assert set(types(child)) <= COUNTERPART_DELIVERABLE
     assert of(child, "help.view")[-1]["payload"]["child_view"] == {
         "call_state": "ACTIVE", "can_complete": True, "arrival_indicator": "NONE"}
     assert not keys([m.get("payload", {}) for m in child]) & CHILD_FORBIDDEN

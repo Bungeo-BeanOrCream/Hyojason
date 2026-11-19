@@ -10,7 +10,7 @@ from types import MappingProxyType
 from uuid import uuid4
 
 from .common import types as shared
-from .common.enums import Action, CallState, EndReason, HelpState, Mode, ObservationHealth
+from .common.enums import Action, CallState, EndReason, HelpState, Mode, ObservationHealth, Role
 from .processing import Basis, NodeResult, Run, SCREEN_BOUNDARIES
 
 
@@ -84,6 +84,8 @@ class HelpSnapshot:
     trail_cursor: int = 0
     event_seq: int = 0
     end_reason: EndReason | None = None
+    # 이번 도움에서 관찰·안내를 받는 기기 (#6). 도움마다 고정한다.
+    assisted_role: str = "PARENT"
 
     @property
     def basis(self) -> Basis:
@@ -124,6 +126,7 @@ class HelpSnapshot:
             mode=Mode(self.mode), mode_revision=self.mode_revision, goal=goal,
             instruction=instruction, screen=screen, trail_cursor=self.trail_cursor,
             consent_revision=self.consent_revision, event_seq=self.event_seq, end_reason=self.end_reason,
+            assisted_role=Role(self.assisted_role),
         )
 
 
@@ -155,18 +158,17 @@ class _State:
     snapshot: HelpSnapshot
     consenting: frozenset[str] = frozenset()
     audio_evaluated: bool = False
-    latest_child_id: str | None = None
-    latest_child_seq: int | None = None
+    # 지시를 말하는 쪽(지원 대상의 상대)의 최신 확정 발화
+    latest_turn_id: str | None = None
+    latest_turn_seq: int | None = None
     draft_kinds: frozenset[str] = frozenset()
     previous_screen_revision: int | None = None
     last_screen_meaning: tuple[str, frozenset[str]] | None = None
     observation_fence: int = 0
     arrival_id: str | None = None
     used_epochs: frozenset[str] = frozenset()
-    rollover_basis: Basis | None = None
     acceptance_confirmed: bool = False
     call_fence: int = 0
-    completion_fence: int = 0
 
     def update(self, **changes):
         self.snapshot = replace(self.snapshot, **changes)
@@ -203,16 +205,25 @@ def _basis(current: HelpSnapshot, supplied: Basis, *names):
 _PUBLISHERS = {
     "call.invite": ("PARENT",), "call.accepted": ("CHILD",),
     "call.connected": ("SERVER",), "call.reconnecting": ("SERVER",), "call.ended": ("SERVER",),
-    "consent.updated": ("PARENT", "CHILD"), "projection.started": ("PARENT",),
-    "screen.observed": ("PARENT",), "speech.final": ("SERVER",),
+    "consent.updated": ("PARENT", "CHILD"), "projection.started": ("PARENT", "CHILD"),
+    "screen.observed": ("PARENT", "CHILD"), "speech.final": ("SERVER",),
     "instruction.drafted": ("SERVER",), "goal.drafted": ("SERVER",),
     "target.located": ("SERVER",), "action.assessed": ("SERVER",),
     "arrival.suspected": ("SERVER",), "arrival.revoked": ("SERVER",),
     # 자녀 완료·부모 중단은 N-22가 승인한 뒤 서버가 help.end로 넣는다 (계약 흐름 N-22 → N-11 → N-23)
     "help.end": ("SERVER",),
-    "guide.shown": ("PARENT",), "guide.suppressed": ("PARENT",),
+    # #6: 도움이 끝난 뒤 새 코드가 승인되면 B 서버가 넣는다. payload의 assisted_role로 다음 도움을 연다.
+    "help.link_approved": ("SERVER",),
+    "guide.shown": ("PARENT", "CHILD"), "guide.suppressed": ("PARENT", "CHILD"),
 }
 _ROLES = frozenset({"PARENT", "CHILD"})
+# 지원 대상 기기만 보낼 수 있는 관찰·표시 이벤트
+_ASSISTED_EVENTS = frozenset({"projection.started", "screen.observed", "guide.shown", "guide.suppressed"})
+
+
+def _other(role: str) -> str:
+    """지원 대상의 상대 역할: 지시를 말하고 도움 완료를 누른다."""
+    return "CHILD" if role == "PARENT" else "PARENT"
 _GOALS = {"SET_FONT", "SET_TIMEOUT", "CLOCK_ALARM", "MAP_ROUTE", "SMS_SEND", "MAIL_OPEN"}
 # Agreed N-10 state evidence (docs/work/D-issue3-screen-kind-review.md).
 # Visible labels, layout movement and target IDs are not semantic state.
@@ -232,8 +243,11 @@ class HelpSession:
 
     def __init__(self, pair_id: str, call_id: str, help_id: str, *,
                  screen_apps: Mapping[str, str], target_ids: Collection[str],
-                 evidence_codes: Collection[str], approved_slots: Mapping[str, Callable]):
-        self._state = _State(HelpSnapshot(_id(pair_id), _id(call_id), _id(help_id)))
+                 evidence_codes: Collection[str], approved_slots: Mapping[str, Callable],
+                 assisted_role: str = "PARENT"):
+        _require(assisted_role in _ROLES)
+        self._state = _State(HelpSnapshot(_id(pair_id), _id(call_id), _id(help_id),
+                                          assisted_role=assisted_role))
         self._screen_apps = dict(screen_apps)
         self._targets = frozenset(target_ids)
         self._evidence = frozenset(evidence_codes)
@@ -262,15 +276,9 @@ class HelpSession:
                 _require(event.help_id == run.basis.help_id, "STALE_BASIS")
                 # A verified RTC hangup belongs to the call. A new help can have
                 # opened while N-03's final disconnect notification was in flight.
-                if event.help_id != previous.help_id and event.type != "call.ended":
-                    # The two independent N-15 results can both be in flight
-                    # when the first result opens the next help in this call.
-                    retired = self._state.rollover_basis
-                    _require(retired is not None and retired.help_id == event.help_id
-                             and event.type in ("goal.drafted", "instruction.drafted")
-                             and run.basis.utterance_seq == retired.utterance_seq
-                             and event.payload.get("source_utterance_id") == self._state.latest_child_id,
-                             "STALE_BASIS")
+                # Any other event must target the current help: a new help opens only
+                # through help.link_approved (#6), so results for a retired help are stale.
+                _require(event.help_id == previous.help_id or event.type == "call.ended", "STALE_BASIS")
                 prior = self._seen.get(event.event_id)
                 if event.type == "call.ended" and previous.call_state == "ENDED":
                     return run.success("N-11", "duplicate_ignored", Reduction(previous, (), self._end_call_seq))
@@ -309,6 +317,8 @@ class HelpSession:
 
     def _apply(self, state, event, role, basis, effects):
         s, p, kind = state.snapshot, event.payload, event.type
+        if kind in _ASSISTED_EVENTS:
+            _require(role == s.assisted_role, "UNAUTHORIZED")
         if kind.startswith("call."):
             return self._call(state, kind, effects)
         if kind == "consent.updated":
@@ -329,9 +339,11 @@ class HelpSession:
             # 범위는 공통 help_id 검사로만 확인한다 (docs/work/D-status.md 결정 메모 1).
             _require(s.help_state != "ENDED", "ALREADY_ENDED")
             reason = EndReason(p["reason"])
-            _require(reason in (EndReason.CHILD_COMPLETED, EndReason.PARENT_STOPPED))
-            if reason is EndReason.PARENT_STOPPED:
-                state.consenting -= {"PARENT"}
+            # 안내 끄기는 지원 대상, 도움 완료는 상대 역할 (#6 제안, N-22가 승인)
+            stopped = EndReason(f"{s.assisted_role}_STOPPED")
+            _require(reason in (stopped, EndReason(f"{_other(s.assisted_role)}_COMPLETED")))
+            if reason is stopped:
+                state.consenting -= {s.assisted_role}
                 state.update(consent_revision=s.consent_revision + 1)
                 effects.append(("stt.close", "SERVER"))
             self._end(state, effects, reason)
@@ -339,21 +351,38 @@ class HelpSession:
 
         _require(state.consenting == _ROLES, "NO_CONSENT")
         _basis(s, basis, "consent_revision", "mode_revision")
+        if kind == "help.link_approved":
+            # #6 · G-3: 도움이 끝나면 같은 RTC 통화 안에서도 새 코드가 승인돼야 다음 도움을 연다.
+            # 새 help_id·빈 상태로 시작하고 지원 대상을 고정한다. 이전 도움 결과는 help_id가 달라 폐기된다.
+            _require(s.help_state == "ENDED", "NOT_APPLICABLE")
+            self._active_call(s)
+            assisted = p.get("assisted_role", "PARENT")
+            _require(assisted in _ROLES)
+            state.snapshot = HelpSnapshot(s.pair_id, s.call_id, uuid4().hex, call_state=s.call_state,
+                                          consent_revision=s.consent_revision, assisted_role=assisted)
+            state.latest_turn_id = state.latest_turn_seq = None
+            state.draft_kinds = frozenset()
+            state.previous_screen_revision = None
+            state.last_screen_meaning = None
+            state.observation_fence = 0
+            state.call_fence = 0
+            state.arrival_id = None
+            state.used_epochs = frozenset()
+            effects.append(("help.opened", "SERVER"))
+            return "state_applied"
         if kind == "speech.final":
             self._active_call(s)
-            if s.help_state == "ENDED":
-                _require(basis.event_seq is not None and basis.event_seq >= state.completion_fence,
-                         "STALE_BASIS")
+            # 끝난 도움에는 새 코드 승인(help.link_approved) 전까지 발화를 해석하지 않는다
+            _require(s.help_state != "ENDED", "NOT_APPLICABLE")
             speaker = p["speaker_role"]
             _require(speaker in _ROLES and p.get("call_id", s.call_id) == s.call_id)
             turn, seq = _id(p["utterance_id"]), _uint(p["utterance_seq"])
-            if speaker == "CHILD":
-                if turn == state.latest_child_id and seq == state.latest_child_seq:
+            if speaker == _other(s.assisted_role):
+                if turn == state.latest_turn_id and seq == state.latest_turn_seq:
                     return "duplicate_ignored"
-                _require(state.latest_child_seq is None or seq > state.latest_child_seq, "STALE_BASIS")
-                state.latest_child_id, state.latest_child_seq = turn, seq
+                _require(state.latest_turn_seq is None or seq > state.latest_turn_seq, "STALE_BASIS")
+                state.latest_turn_id, state.latest_turn_seq = turn, seq
                 state.draft_kinds = frozenset()
-                state.rollover_basis = None
                 state.update(utterance_seq=seq)
                 effects.append(("turn.interpret", "SERVER"))
             return "state_applied"
@@ -395,8 +424,8 @@ class HelpSession:
                     return "duplicate_ignored"
                 state.arrival_id = arrival
                 state.update(help_state="ARRIVAL_PENDING")
-            effects.append((kind, "CHILD"))
-        else:  # guide.shown / guide.suppressed observations from the parent
+            effects.append((kind, _other(s.assisted_role)))
+        else:  # guide.shown / guide.suppressed observations from the assisted device
             _id(p["decision_id"])
             _basis(s, basis, "screen_revision", "projection_epoch")
             if s.mode == "CALL_CHILD_LED":
@@ -424,12 +453,12 @@ class HelpSession:
                 self._end(state, effects, EndReason.NO_GOAL_AT_HANGUP)
                 return "state_applied"
             state.previous_screen_revision = None
-            state.latest_child_id = None
+            state.latest_turn_id = None
             state.draft_kinds = frozenset()
             state.update(mode="POST_CALL_AGENT", mode_revision=s.mode_revision + 1,
                          help_state="ACTIVE", instruction=None, screen=None, observation_health="GAP")
-            effects.extend([("instruction.cleared", "PARENT"), ("mode.changed", "PARENT"),
-                            ("screen.reobserve", "PARENT")])
+            effects.extend([("instruction.cleared", s.assisted_role), ("mode.changed", s.assisted_role),
+                            ("screen.reobserve", s.assisted_role)])
             return "call_ended_help_active"
 
         if kind == "call.accepted":
@@ -449,7 +478,7 @@ class HelpSession:
         state.update(call_state=dest)
         if dest == "RECONNECTING":
             state.call_fence = s.event_seq + 1
-            effects.extend([("stt.pause", "SERVER"), ("guide.suspend", "PARENT")])
+            effects.extend([("stt.pause", "SERVER"), ("guide.suspend", s.assisted_role)])
         elif s.call_state == "RECONNECTING" and state.consenting == _ROLES:
             effects.append(("stt.resume", "SERVER"))
         return "state_applied"
@@ -457,9 +486,7 @@ class HelpSession:
     @staticmethod
     def _end(state, effects, reason):
         s = state.snapshot
-        state.completion_fence = s.event_seq + 1
-        state.latest_child_id = None
-        state.rollover_basis = None
+        state.latest_turn_id = None
         state.draft_kinds = frozenset()
         state.previous_screen_revision = None
         state.last_screen_meaning = None
@@ -470,8 +497,8 @@ class HelpSession:
                      projection_epoch=None, screen_revision=None, observation_health="STOPPED", trail_cursor=0)
         if s.help_state != "ENDED":
             # help.ended는 N-23이 남은 범위를 정리한 뒤 양쪽에 보낸다.
-            effects.extend([("instruction.cleared", "PARENT"), ("trail.clear", "SERVER"),
-                            ("observation.stop", "PARENT"), ("help.purge", "SERVER")])
+            effects.extend([("instruction.cleared", s.assisted_role), ("trail.clear", "SERVER"),
+                            ("observation.stop", s.assisted_role), ("help.purge", "SERVER")])
 
     def _draft(self, state, kind, p, basis, effects):
         s = state.snapshot
@@ -479,20 +506,11 @@ class HelpSession:
         if state.call_fence:
             _require(basis.event_seq is not None and basis.event_seq >= state.call_fence, "STALE_BASIS")
         _basis(s, basis, "utterance_seq")
+        _require(s.help_state != "ENDED", "NOT_APPLICABLE")  # 새 도움은 help.link_approved로만 연다
         turn = _id(p["source_utterance_id"])
-        _require(turn == state.latest_child_id, "STALE_BASIS")
+        _require(turn == state.latest_turn_id, "STALE_BASIS")
         if kind in state.draft_kinds:
             return "duplicate_ignored"
-        if s.help_state == "ENDED":
-            # A new authorized child turn in the same live call starts from an empty help.
-            state.rollover_basis = s.basis
-            s = HelpSnapshot(s.pair_id, s.call_id, uuid4().hex, call_state="ACTIVE",
-                             consent_revision=s.consent_revision, utterance_seq=state.latest_child_seq)
-            state.snapshot = s
-            state.observation_fence = 0
-            state.call_fence = 0
-            state.completion_fence = 0
-            effects.append(("help.opened", "SERVER"))
         if kind == "instruction.drafted":
             action, target = p["action"], p["target_key"]
             _require(p["supersedes_previous"] is True and action in ("TAP", "BACK", "SCROLL_DOWN"))
@@ -501,18 +519,14 @@ class HelpSession:
             instruction = Instruction(uuid4().hex, revision, turn, target, action,
                                       s.screen.screen_revision if s.screen else None)
             if s.instruction is not None:
-                effects.append(("instruction.cleared", "PARENT"))
+                effects.append(("instruction.cleared", s.assisted_role))
             state.previous_screen_revision = None
             state.update(instruction=instruction, instruction_revision=revision, help_state="ACTIVE")
-            effects.append(("instruction.accepted", "PARENT"))
+            effects.append(("instruction.accepted", s.assisted_role))
         else:
             # A sibling instruction may already have committed for the same turn.
             # Only the goal scope participates in this comparison.
-            expected = self._state.snapshot
-            expected_revision = expected.goal_revision
-            if state.rollover_basis and basis.help_id == state.rollover_basis.help_id:
-                expected_revision = state.rollover_basis.goal_revision
-            _require(expected_revision == basis.goal_revision, "STALE_BASIS")
+            _require(self._state.snapshot.goal_revision == basis.goal_revision, "STALE_BASIS")
             goal_id, slots = p["goal_id"], p["approved_slots"]
             _require(goal_id in _GOALS and goal_id in self._slots and type(slots) is dict)
             _require(all(type(k) is str and type(v) in (str, int, bool) for k, v in slots.items()))
@@ -521,11 +535,11 @@ class HelpSession:
                 revision = s.goal_revision + 1
                 goal = Goal(goal_id, revision, MappingProxyType(dict(slots)), turn)
                 state.update(goal=goal, goal_revision=revision, help_state="ACTIVE")
-                effects.append(("goal.updated", "PARENT"))
+                effects.append(("goal.updated", s.assisted_role))
         state.draft_kinds |= {kind}
         if not state.audio_evaluated:
             state.audio_evaluated = True
-            effects.append(("audio.evaluate", "PARENT"))
+            effects.append(("audio.evaluate", s.assisted_role))
         return "state_applied"
 
     def _observe(self, state, p, basis, effects):
@@ -556,7 +570,7 @@ class HelpSession:
             if health in ("STOPPED", "NOT_GRANTED"):
                 state.update(projection_epoch=None, trail_cursor=0)
                 effects.append(("trail.clear", "SERVER"))
-            effects.append(("guide.suspend", "PARENT"))
+            effects.append(("guide.suspend", s.assisted_role))
             return
         revision = _uint(p["screen_revision"])
         _require(s.screen_revision is None or revision >= s.screen_revision, "STALE_BASIS")
@@ -617,5 +631,5 @@ class HelpSession:
                          "STALE_BASIS")
             if verdict == "CORRECT":
                 state.update(instruction=None)
-                effects.append(("instruction.cleared", "PARENT"))
+                effects.append(("instruction.cleared", s.assisted_role))
         effects.append((kind, "SERVER"))

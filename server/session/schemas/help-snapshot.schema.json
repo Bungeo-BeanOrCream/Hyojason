@@ -76,6 +76,9 @@
           "type": "null"
         }
       ]
+    },
+    "assisted_role": {
+      "$ref": "#/$defs/Role"
     }
   },
   "required": [
@@ -92,7 +95,8 @@
     "trail_cursor",
     "consent_revision",
     "event_seq",
-    "end_reason"
+    "end_reason",
+    "assisted_role"
   ],
   "additionalProperties": false,
   "$defs": {
@@ -122,6 +126,8 @@
       "enum": [
         "CHILD_COMPLETED",
         "PARENT_STOPPED",
+        "PARENT_COMPLETED",
+        "CHILD_STOPPED",
         "NO_GOAL_AT_HANGUP",
         "CONSENT_REVOKED"
       ]
@@ -214,6 +220,13 @@
         "ACTIVE",
         "GAP",
         "STOPPED"
+      ]
+    },
+    "Role": {
+      "type": "string",
+      "enum": [
+        "PARENT",
+        "CHILD"
       ]
     },
     "ScreenState": {

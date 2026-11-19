@@ -144,24 +144,31 @@ class ReducerTests(TestCase):
         self.assertEqual(ended.data.snapshot.help_state, "ENDED")
         self.assertNotIn("screen.reobserve", self.effects(ended))
 
-    def test_fresh_help_and_sibling_drafts_from_same_opening_turn(self):
+    def test_new_help_opens_only_after_new_link_and_retires_old_results(self):
+        # #6 · G-3: 도움이 끝나면 같은 통화 안에서도 새 코드 승인(help.link_approved) 전에는 새 도움이 없다.
         self.speech(1)
         self.draft(1, "goal")
         before_completion = self.basis
         self.send("help.end", reason="CHILD_COMPLETED")
-        self.reject("STALE_BASIS", "speech.final", basis=before_completion,
-                    speaker_role="CHILD", utterance_id="delayed", utterance_seq=2)
+        self.reject("NOT_APPLICABLE", "speech.final", speaker_role="CHILD", utterance_id="early", utterance_seq=2)
+        self.reject("NOT_APPLICABLE", "instruction.drafted", source_utterance_id="turn-1", action="TAP",
+                    target_key=None, supersedes_previous=True)
+        opened = self.send("help.link_approved", assisted_role="PARENT", event_id="link-1")
+        self.assertIn("help.opened", self.effects(opened))
+        self.assertNotEqual(self.basis.help_id, before_completion.help_id)
+        self.assertEqual((self.basis.event_seq, self.session.snapshot.help_state), (1, "LISTENING"))
+        self.assertIsNone(self.session.snapshot.goal)
+        self.reject("NOT_APPLICABLE", "help.link_approved", assisted_role="PARENT")  # 열린 도움에는 다시 승인 불가
         self.speech(2)
-        opening = self.basis
-        result = self.draft(2, basis=opening, event_id="open")
-        self.assertNotEqual(self.basis.help_id, opening.help_id)
-        self.assertEqual(self.basis.event_seq, 1)
-        self.assertNotIn("audio.evaluate", self.effects(result))
-        self.assertEqual(self.draft(2, basis=opening, event_id="open").outcome, "duplicate_ignored")
-        self.draft(2, "goal", basis=opening)
+        result = self.draft(2)
+        self.assertNotIn("audio.evaluate", self.effects(result))  # 오디오 경로 평가는 통화당 한 번
+        self.draft(2, "goal")
         self.assertEqual((self.basis.goal_revision, self.basis.instruction_revision), (1, 1))
-        self.reject("STALE_BASIS", "help.end", basis=opening, reason="CHILD_COMPLETED")
-        self.reject("UNAUTHORIZED", "call.ended", basis=replace(opening, call_id="foreign"))
+        # 이전 도움을 대상으로 한 늦은 결과·종료는 새 도움에 영향이 없다
+        self.reject("STALE_BASIS", "help.end", basis=before_completion, reason="CHILD_COMPLETED")
+        self.reject("STALE_BASIS", "goal.drafted", basis=before_completion, source_utterance_id="turn-1",
+                    goal_id="SET_FONT", approved_slots={"steps": 1})
+        self.reject("UNAUTHORIZED", "call.ended", basis=replace(self.basis, call_id="foreign"))
         ended = self.send("call.ended", basis=before_completion)
         self.assertEqual(ended.outcome, "call_ended_help_active")
         self.assertNotEqual(ended.data.snapshot.help_id, before_completion.help_id)
@@ -190,9 +197,12 @@ class ReducerTests(TestCase):
         first = self.draft(1)
         self.send("help.end", reason="PARENT_STOPPED")
         self.reject("NO_CONSENT", "speech.final", speaker_role="CHILD", utterance_seq=2, utterance_id="turn-2")
+        # 부모가 다시 안내를 켜기 전에는 새 코드가 와도 도움을 열지 않는다 (B07.3)
+        self.reject("NO_CONSENT", "help.link_approved", assisted_role="PARENT")
         self.send("consent.updated", "PARENT", purpose="analysis", enabled=True)
-        self.reject("STALE_BASIS", "instruction.drafted", source_utterance_id="turn-1",
+        self.reject("NOT_APPLICABLE", "instruction.drafted", source_utterance_id="turn-1",
                     action="TAP", target_key=None, supersedes_previous=True)
+        self.send("help.link_approved", assisted_role="PARENT")
         self.speech(2)
         reopened = self.draft(2)
         self.assertNotEqual(reopened.data.snapshot.help_id, first.data.snapshot.help_id)

@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from .common.enums import ActorRole, CleanupScope, EndReason, Role, Source
 from .common.events import EVENT_VERSION, ControlEvent
 from .common.result import Basis, ErrorCode, NodeResult, NodeRun, ResultRef, StepStatus, new_id
+from .common.roles import is_stop, reason_actor
 from .common.types import HelpSnapshot, snapshot_problems
 from .ports import EventSink, HelpScopedStore, HelpTombstone
 
@@ -38,16 +39,23 @@ SERVER_SCOPES: tuple[CleanupScope, ...] = (
 )
 _DEVICE_SCOPE = {Role.PARENT: CleanupScope.PARENT_DEVICE, Role.CHILD: CleanupScope.CHILD_DEVICE}
 
-# 종료 사유 ↔ 요청할 수 있는 역할 (서로 바꿔 처리하지 않는다)
-_REASON_ROLES: dict[EndReason, frozenset[ActorRole]] = {
-    EndReason.CHILD_COMPLETED: frozenset({ActorRole.CHILD}),
-    EndReason.PARENT_STOPPED: frozenset({ActorRole.PARENT}),
-    EndReason.NO_GOAL_AT_HANGUP: frozenset({ActorRole.AGENT}),
-    # N-11의 consent.updated(enabled=false)는 부모·자녀 어느 쪽이든 보낼 수 있다
-    EndReason.CONSENT_REVOKED: frozenset({ActorRole.PARENT, ActorRole.CHILD}),
-}
-# 다음 도움 전에 부모 재활성 동의가 필요한 종료 사유
-_CONSENT_GATED = frozenset({EndReason.PARENT_STOPPED, EndReason.CONSENT_REVOKED})
+def _allowed_roles(reason: EndReason) -> frozenset[ActorRole]:
+    """종료 사유 ↔ 요청할 수 있는 역할 (서로 바꿔 처리하지 않는다).
+
+    완료·끄기 사유 이름에 누른 가족 역할이 들어 있다(PARENT_COMPLETED, CHILD_STOPPED 등, #6).
+    목표 없는 통화 종료는 서버(AGENT), 동의 철회는 부모·자녀 어느 쪽이든.
+    """
+    actor = reason_actor(reason)
+    if actor is not None:
+        return frozenset({ActorRole(actor.value)})
+    if reason is EndReason.NO_GOAL_AT_HANGUP:
+        return frozenset({ActorRole.AGENT})
+    return frozenset({ActorRole.PARENT, ActorRole.CHILD})
+
+
+def _consent_gated(reason: EndReason) -> bool:
+    """다음 도움 전에 지원 대상의 재활성 동의가 필요한 종료 (안내 끄기, 동의 철회)."""
+    return is_stop(reason) or reason is EndReason.CONSENT_REVOKED
 
 
 class TombstoneRegistry:
@@ -147,7 +155,7 @@ def purge_help_and_restart(
     run.step("validate_input", StepStatus.SUCCESS)
 
     # 2. 종료 사유와 요청 역할이 맞아야 한다
-    if inp.role not in _REASON_ROLES[inp.end_reason]:
+    if inp.role not in _allowed_roles(inp.end_reason):
         return run.error(ErrorCode.UNAUTHORIZED, "authorize", scope_basis, input_refs=refs)
     run.step("authorize", StepStatus.SUCCESS)
 
@@ -196,7 +204,7 @@ def purge_help_and_restart(
 
         # 6. 늦은 응답을 거를 최소 기록
         end_event_id = new_event_id()
-        resume_requires_consent = inp.end_reason in _CONSENT_GATED or not inp.consent_active
+        resume_requires_consent = _consent_gated(inp.end_reason) or not inp.consent_active
         tombstones.record(HelpTombstone(
             pair_id=pair_id,
             help_id=inp.help_id,

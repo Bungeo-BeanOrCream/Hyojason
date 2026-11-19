@@ -3,7 +3,7 @@
 | 경로 | 호출자 | 처리 |
 |---|---|---|
 | POST /v1/pairs/claim | 두 역할 | MOCK N-01 페어 승인 |
-| POST /v1/calls | 부모 | 통화 생성, trace_id 발급, 자녀에게 call.invite |
+| POST /v1/calls | 부모 | 통화 생성(body: assisted_role, 기본 PARENT), trace_id 발급, 자녀에게 call.invite |
 | POST /v1/calls/{call_id}/accept | 자녀 | 수락. MOCK N-03이 곧바로 call.connected |
 | POST /v1/calls/{call_id}/rtc-token | 페어 참가자 | MOCK: 토큰 없음(null) |
 | GET /v1/help/current | 페어 참가자 | N-13 재접속 조회 |
@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from fastapi import FastAPI, Header, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
-from ..common.enums import Source
+from ..common.enums import Role, Source
 from ..common.result import new_id
 from ..common.serialize import to_jsonable
 from ..common.types import ActorContext
@@ -99,11 +99,15 @@ def create_app(config: ServerConfig) -> FastAPI:
         return hub.claim(actor_of(authorization))
 
     @app.post("/v1/calls", status_code=201)
-    async def create_call(authorization: str | None = Header(default=None)):
-        control = hub.create_call(actor_of(authorization))
+    async def create_call(request: Request, authorization: str | None = Header(default=None)):
+        actor = actor_of(authorization)
+        body = await _json_body(request) if await request.body() else {}
+        if set(body) - {"assisted_role"} or body.get("assisted_role", "PARENT") not in ("PARENT", "CHILD"):
+            raise WireError("INVALID_EVENT")
+        control = hub.create_call(actor, Role(body.get("assisted_role", "PARENT")))
         s = control.snapshot
         return {"call_id": s.call_id, "help_id": s.help_id, "trace_id": control.trace_id,
-                "call_state": s.call_state}
+                "call_state": s.call_state, "assisted_role": s.assisted_role}
 
     @app.post("/v1/calls/{call_id}/accept")
     async def accept_call(call_id: str, authorization: str | None = Header(default=None)):

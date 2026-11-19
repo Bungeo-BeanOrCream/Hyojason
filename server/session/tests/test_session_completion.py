@@ -161,7 +161,8 @@ def test_old_help_complete_after_new_help_is_stale():
     f = Flow()
     f.turn()
     f.control.submit_command(HelpCommand.COMPLETE, CHILD, "help")
-    f.turn(2, goal=False)  # 같은 통화의 새 자녀 지시 → N-11이 새 help_id로 연다
+    f.emit("help.link_approved", assisted_role="PARENT")  # 새 코드 승인 → N-11이 새 help_id로 연다 (#6)
+    f.turn(2, goal=False)
     new_help = f.control.snapshot.help_id
     assert new_help != "help"
     r = f.control.submit_command(HelpCommand.COMPLETE, CHILD, "help")

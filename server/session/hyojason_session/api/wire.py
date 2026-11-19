@@ -20,18 +20,16 @@ from ..common.types import ActorContext
 
 ENVELOPE_KEYS = frozenset({"v", "type", "event_id", "pair_id", "call_id", "help_id", "payload"})
 
-# 앱이 WS로 보낼 수 있는 이벤트 (N-11 발행자 표 + 명령)
-CLIENT_EVENTS: Mapping[Role, frozenset[str]] = {
-    Role.PARENT: frozenset({
-        "consent.updated", "projection.started", "screen.observed",
-        "guide.shown", "guide.suppressed", "help.stop",
-    }),
-    Role.CHILD: frozenset({"consent.updated", "help.complete"}),
-}
+# 앱이 WS로 보낼 수 있는 이벤트. 가족 역할이 아니라 이번 도움의 지원 대상 기준이다 (#6, 기본 부모).
+ASSISTED_EVENTS = frozenset({
+    "consent.updated", "projection.started", "screen.observed",
+    "guide.shown", "guide.suppressed", "help.stop",
+})
+COUNTERPART_EVENTS = frozenset({"consent.updated", "help.complete"})
 COMMANDS: Mapping[str, HelpCommand] = {"help.complete": HelpCommand.COMPLETE, "help.stop": HelpCommand.STOP}
 
-# 자녀 앱에 보낼 수 있는 이벤트만 허용한다 (N-21: 목표·지시·화면·이력·좌표 금지)
-CHILD_DELIVERABLE = frozenset({"call.invite", "help.view", "arrival.suspected", "arrival.revoked", "help.ended"})
+# 지원 대상의 상대 기기에 보낼 수 있는 이벤트만 허용한다 (N-21: 목표·지시·화면·이력·좌표 금지)
+COUNTERPART_DELIVERABLE = frozenset({"call.invite", "help.view", "arrival.suspected", "arrival.revoked", "help.ended"})
 
 VIEW_EVENT = "help.view"
 ACK = "event.ack"
@@ -62,6 +60,7 @@ def _id(value: object) -> bool:
 
 
 def parse_envelope(message: object, actor: ActorContext) -> dict:
+    """봉투 구조와 페어만 본다. 역할별 허용 여부는 check_sender가 이번 도움의 지원 대상으로 본다."""
     if not isinstance(message, dict) or set(message) != ENVELOPE_KEYS:
         raise WireError("INVALID_EVENT")
     if message["v"] != EVENT_VERSION or not isinstance(message["type"], str):
@@ -72,9 +71,13 @@ def parse_envelope(message: object, actor: ActorContext) -> dict:
         raise WireError("INVALID_EVENT")
     if message["pair_id"] != actor.pair_id:
         raise WireError("FORBIDDEN", "UNAUTHORIZED")
-    if message["type"] not in CLIENT_EVENTS[actor.role]:
-        raise WireError("FORBIDDEN", "UNAUTHORIZED")
     return message
+
+
+def check_sender(envelope: Mapping, actor: ActorContext, assisted_role: Role) -> None:
+    allowed = ASSISTED_EVENTS if actor.role is assisted_role else COUNTERPART_EVENTS
+    if envelope["type"] not in allowed:
+        raise WireError("FORBIDDEN", "UNAUTHORIZED")
 
 
 def control_event(type_: str, pair_id: str, call_id: str | None, help_id: str | None,

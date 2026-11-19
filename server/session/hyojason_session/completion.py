@@ -34,6 +34,7 @@ from .common.enums import (
     Source,
 )
 from .common.result import Basis, ErrorCode, NodeResult, NodeRun, ResultRef, StepStatus
+from .common.roles import completed_reason, counterpart, stopped_reason
 from .common.types import ActorContext, HelpSnapshot, snapshot_problems
 
 NODE_ID = "N-22"
@@ -41,11 +42,14 @@ OUTCOME_ARRIVAL_ANNOUNCED = "arrival_announced"
 OUTCOME_END_REQUESTED = "end_requested"
 OUTCOME_DUPLICATE_IGNORED = "duplicate_ignored"
 
-# 명령 종류 ↔ 보낼 수 있는 역할 ↔ 종료 사유
-_COMMAND_RULES: dict[HelpCommand, tuple[ActorRole, EndReason]] = {
-    HelpCommand.COMPLETE: (ActorRole.CHILD, EndReason.CHILD_COMPLETED),
-    HelpCommand.STOP: (ActorRole.PARENT, EndReason.PARENT_STOPPED),
-}
+def _command_rule(command: HelpCommand, snapshot: HelpSnapshot) -> tuple[ActorRole, EndReason]:
+    """명령 종류 → 보낼 수 있는 역할과 종료 사유 (#6 제안: 완료는 지원 대상의 상대, 안내 끄기는 지원 대상).
+
+    기본 지원 대상이 부모라 완료=자녀(CHILD_COMPLETED), 끄기=부모(PARENT_STOPPED)로 기존과 같다.
+    """
+    role = counterpart(snapshot.assisted_role) if command is HelpCommand.COMPLETE else snapshot.assisted_role
+    reason = completed_reason(role) if command is HelpCommand.COMPLETE else stopped_reason(role)
+    return ActorRole(role.value), reason
 
 
 @dataclass(frozen=True)
@@ -214,7 +218,7 @@ def resolve_arrival_or_completion(
     if inp.arrival is not None:
         authorized = inp.actor_role is ActorRole.AGENT and actor is None
     else:
-        allowed_role, _ = _COMMAND_RULES[inp.command]
+        allowed_role, _ = _command_rule(inp.command, snap)
         authorized = (
             inp.actor_role is allowed_role
             and actor is not None
@@ -244,7 +248,7 @@ def _call_basis(inp: CompletionInput) -> Basis:
 
 def _resolve_command(run, inp, ledger, basis, refs) -> NodeResult[CompletionData]:
     snap = inp.snapshot
-    _, reason = _COMMAND_RULES[inp.command]
+    _, reason = _command_rule(inp.command, snap)
     already = ledger.end_claim(inp.help_id) or (
         snap.end_reason if snap.help_state is HelpState.ENDED else None
     )
