@@ -14,19 +14,21 @@
 | [N-08 · prepare_frame_for_detection](N-08.md) | [B-03](../big-nodes/B-03.md) | A · Android | 프레임을 현지 분석 가능한 화면으로 준비하며 원본 수명과 좌표 변환을 제한한다. |
 | [N-09 · detect_screen_and_targets](N-09.md) | [B-03](../big-nodes/B-03.md) | A · Android, D 검증 | 지원 screen_kind와 현재 보이는 검증 가능한 후보·근거만 반환한다. |
 | [N-10 · confirm_screen_transition](N-10.md) | [B-03](../big-nodes/B-03.md) | A · Android | 실제 화면의 의미 변화와 레이아웃 변경을 분리하고 안정된 상태만 발행한다. |
-| [N-11 · reduce_help_state](N-11.md) | [B-04](../big-nodes/B-04.md) | D · 제어 서버 | 통화/도움/관찰과 목표 revision을 단일 처리 경로로 갱신한다. |
-| [N-12 · record_verified_navigation](N-12.md) | [B-04](../big-nodes/B-04.md) | D · 제어 서버 | 재안내 후보를 만들 수 있도록 실제로 관찰한 경로를 메모리에 남긴다. |
+| [N-11 · reduce_help_state](N-11.md) | [B-04](../big-nodes/B-04.md) | D · 제어 서버 | 모드·지시·목표의 버전과 자녀 주도/통화 후 도움 상태를 반영한다. |
+| [N-12 · record_verified_navigation](N-12.md) | [B-04](../big-nodes/B-04.md) | D · 제어 서버 | 정규화한 지시·위치 근거·조작 결과와 연속 화면 전이를 기록한다. |
 | [N-13 · reconcile_reconnect](N-13.md) | [B-04](../big-nodes/B-04.md) | D · 서버/클라이언트 | 제어 채널 재접속에서 최신 상태와 필요한 재검증만 복원한다. |
-| [N-14 · call_zoro_decision](N-14.md) | [B-05](../big-nodes/B-05.md) | C · 추론 adapter | 선택형 Zoro-1 요청을 실제 모델에 보내고 확률·출력·버전 유효성을 검사한다. |
-| [N-15 · infer_goal_or_change](N-15.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버 | 대화에서 단일 목표·세부 조건을 정하고 기존 목표의 변경 여부를 선택한다. |
-| [N-16 · enumerate_action_candidates](N-16.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버, D 프로필 | 현재 화면과 관찰 이력에서 합법적인 다음 행동 후보를 구성한다. |
-| [N-17 · choose_single_guide](N-17.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버 | 목표로 갈 다음 행동 하나를 골라 동작과 유효 범위를 제출한다. |
-| [N-18 · judge_goal_arrival](N-18.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버, D 평가 | 목표에 도착했다고 추정할 수 있는지를 화면 근거와 모델 결정으로 판단한다. |
-| [N-19 · gate_guide_on_device](N-19.md) | [B-06](../big-nodes/B-06.md) | A · Android | 3초 타이머와 현재 화면 위치를 기준으로 실제 표시를 허용하거나 차단한다. |
+| [N-14 · infer_zoro_choice](N-14.md) | [B-05](../big-nodes/B-05.md) | C · 추론 adapter | 실제 Zoro-1의 다섯 질문에 대해 승인 후보와 모델 응답을 검증한다. |
+| [N-15 · interpret_child_turn](N-15.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버 | 최신 자녀 확정문에서 명시 목표와 현재 지시 하나를 분리해 추출한다. |
+| [N-16 · enumerate_action_candidates](N-16.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버, D 프로필 | 현재·아래·검증 역경로를 탐색하고 정상 빈 결과, 부분, 오류를 나눈다. |
+| [N-17 · choose_post_call_action](N-17.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버 | 통화 종료 뒤 다음 한 행동을 실제 모델로 고른다. |
+| [N-18 · assess_post_call_arrival](N-18.md) | [B-05](../big-nodes/B-05.md) | C · Agent 서버, D 평가 | 통화 종료 뒤 검증된 화면 근거와 실제 모델로 도착을 추정한다. |
+| [N-19 · gate_guide_on_device](N-19.md) | [B-06](../big-nodes/B-06.md) | A · Android | 모드별 3초·조작 증거와 로컬 지오메트리로 안내 표시를 검증한다. |
 | [N-20 · render_parent_surfaces](N-20.md) | [B-06](../big-nodes/B-06.md) | A · Android | 부모 상단 띠와 실제 화면의 중복 없는 단계 안내를 표시한다. |
-| [N-21 · project_role_view](N-21.md) | [B-07](../big-nodes/B-07.md) | D · 서버, B 자녀 UI | 부모·자녀 화면에 각각 허용된 상태를 전달한다. |
+| [N-21 · project_role_view](N-21.md) | [B-07](../big-nodes/B-07.md) | D · 서버, B 자녀 UI | 부모 상태와 자녀의 통화·도착·완료만 각각 투영한다. |
 | [N-22 · resolve_arrival_or_completion](N-22.md) | [B-07](../big-nodes/B-07.md) | D · 제어 서버 | 도착 추정과 자녀 최종 완료, 부모 안내 끄기를 독립적으로 처리한다. |
 | [N-23 · purge_help_and_restart](N-23.md) | [B-07](../big-nodes/B-07.md) | D · 서버, A·B 클라이언트 | 끝난 도움의 관찰과 데이터를 지우고 새 도움은 빈 상태에서 연다. |
 | [N-24 · prepare_demo_fixtures](N-24.md) | [B-08](../big-nodes/B-08.md) | D · AVD/자료 | 외부 네트워크와 기기 환경을 포함하여 5개 목표를 재현할 테스트 조건을 고정한다. |
-| [N-25 · evaluate_end_to_end](N-25.md) | [B-08](../big-nodes/B-08.md) | D · 리허설/통합, 전체 협업 | 실제 라이브와 모의 시험을 분리하고 요구사항의 통과 여부를 기록한다. |
-| [N-26 · track_model_runtime_and_budget](N-26.md) | [B-08](../big-nodes/B-08.md) | C · GPU·배포 | Zoro 런타임 제공과 실제 총비용을 관리한다. |
+| [N-25 · evaluate_end_to_end](N-25.md) | [B-08](../big-nodes/B-08.md) | D · 리허설/통합, 전체 협업 | 지시·위치·목표·개입 실험과 LIVE/FIXTURE 기록을 판정한다. |
+| [N-26 · track_model_runtime_and_budget](N-26.md) | [B-08](../big-nodes/B-08.md) | C · GPU·배포 | L40S 시작, 다섯 질문 모델 smoke와 $100 한도를 관리한다. |
+| [N-27 · locate_child_instruction_target](N-27.md) | [B-05](../big-nodes/B-05.md) | C · Agent, A 로컬 매칭 | 자녀 지시 버튼의 실제 후보 및 현재·아래 위치를 확인한다. |
+| [N-28 · assess_instruction_follow_through](N-28.md) | [B-05](../big-nodes/B-05.md) | C · Agent, A 관측 | 지시 뒤 화면의 변화에서 맞는 조작, 틀린 조작, 미확인을 구분한다. |

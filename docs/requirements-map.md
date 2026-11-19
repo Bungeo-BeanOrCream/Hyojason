@@ -1,37 +1,29 @@
-# PRD v2 요구사항 추적표
+# PRD 요구사항 추적표
 
-요구 ID는 PRD v2 pp. 4–8의 번호다. 문서가 기능 구현 완료를 뜻하지는 않는다. 시연·정량 기준은 [검증표](scenarios.md#검증-표본과-티켓)를 사용한다.
+문제·사용자·앱별 지원 목표는 원안, 지시 해석·개입·인계·수용 지표는 최신 변경사항을 따른다. [실험 계획](verification-plan.md)에서 확인 방법과 기대값을 확인한다.
 
-| 요구사항 | 설계 책임 | 확인 방법 |
+| 요구 | 구현 책임 | 최소 수용 기준 |
 |---|---|---|
-| A-1 부모의 한 번 발신 | [N-01](small-nodes/N-01.md) · [N-03](small-nodes/N-03.md) | 자녀 한 명의 사진과 발신 확인 |
-| A-2 양쪽 효자손 앱 통화 | [N-03](small-nodes/N-03.md) | 두 AVD에서 발신·수신·양방향 음성 |
-| A-3 페어 통화만 분석 | [N-02](small-nodes/N-02.md) · [N-04](small-nodes/N-04.md) | 제3 참가자·동의 한쪽 철회 거절 |
-| A-4 앱 밖에서도 통화 | [N-03](small-nodes/N-03.md) | Settings·Clock 전환 중 양쪽 음성 실측 |
-| A-5 자녀 발신 P1 | [B-01](big-nodes/B-01.md) | 우선순위 P1로 유지 |
-| B-1 자동 분석·부모 표시 | [N-02](small-nodes/N-02.md) · [N-04](small-nodes/N-04.md) · [N-20](small-nodes/N-20.md) | 동의 뒤 듣는 상태 표시, 종료 뒤 제거 |
-| B-2 단일 목표 · B-3 슬롯 | [N-15](small-nodes/N-15.md) | 다중 발화에서 하나의 목표, 알람·지도·문자 슬롯 |
-| B-4 변경 전파 | [N-11](small-nodes/N-11.md) · [N-15](small-nodes/N-15.md) · [N-21](small-nodes/N-21.md) | 이전 강조 삭제, 양쪽 goal_revision 5초 내 갱신 목표 |
-| B-5 보류 · B-6 바로 안내 | [N-15](small-nodes/N-15.md) · [N-17](small-nodes/N-17.md) | 낮은 확신은 대기, 명확한 목표는 확인 질문 없이 시작 |
-| B-7 미지원 안내 P1 | [N-15](small-nodes/N-15.md) | NONE 분류를 지원하며 설명 일반 UI는 P1 |
-| C-1 현재 화면의 한 단계 | [N-09](small-nodes/N-09.md) · [N-16](small-nodes/N-16.md) · [N-17](small-nodes/N-17.md) | 후보 중 선택하며 유효 대상 1개 검증 |
-| C-2 빨간 테두리·문구 | [N-20](small-nodes/N-20.md) | 아래 버튼을 가리지 않고 안내 표시 |
-| C-3 3초 · C-4 구 안내 제거 | [N-10](small-nodes/N-10.md) · [N-19](small-nodes/N-19.md) | 화면/목표 변경 직후 취소, 새 조건 후 3초 ±1초 |
-| C-5 터치 통과 | [N-20](small-nodes/N-20.md) | Settings·Clock 포함 앱별 실제 버튼 터치 |
-| C-6 P0 안내 · C-7 조작 확장 P1 | [N-17](small-nodes/N-17.md) · [N-20](small-nodes/N-20.md) | 탭/뒤로/스크롤/입력 안내를 검증. P1 종류를 따로 기록 |
-| C-8 오조작 재판단 · C-9 낮은 확신 대기 | [N-10](small-nodes/N-10.md) · [N-16](small-nodes/N-16.md) · [N-17](small-nodes/N-17.md) | 부모가 다른 메뉴를 눌러도 현재 화면에서 다시 판단 |
-| C-10 도착 추정 | [N-18](small-nodes/N-18.md) · [N-22](small-nodes/N-22.md) | 도착 추정 알림만 보내고 최종 완료 대기 |
-| C-11 위험 동작 차단 | [N-08](small-nodes/N-08.md) · [N-16](small-nodes/N-16.md) | 허용되지 않는 요청은 표시 도구를 차단하고 확인 메시지 |
-| D-1 이력 · D-2 이력 기반 복귀 | [N-12](small-nodes/N-12.md) · [N-16](small-nodes/N-16.md) | 실제 방문한 디스플레이 화면을 근거로 복귀 |
-| D-3 반복 감지 P1 · D-4 삭제 | [N-12](small-nodes/N-12.md) · [N-23](small-nodes/N-23.md) | 종료 수명·재사용 없음 검사. 반복 경로 최적화는 P1 |
-| E-1 상단 띠 · E-3 완료 문구 · E-4 접근성 | [N-20](small-nodes/N-20.md) · [N-21](small-nodes/N-21.md) | 상대/목표/안내 끄기/복귀, 큰 글씨, 안내 1개 확인 |
-| E-2 오디오 출력 전환 | [N-03](small-nodes/N-03.md) | 이어폰 예외와 스피커폰을 각각 검사 |
-| F-1 현재 목표 · F-3 화면 비공개 · F-4 통화 후 첫 화면 | [N-21](small-nodes/N-21.md) | 자녀 앱은 목표와 완료 상태만 수신 |
-| F-2 도움 완료 · F-5 도착 알림 | [N-22](small-nodes/N-22.md) · [N-23](small-nodes/N-23.md) | 도착 알림 표시와 자녀의 명시적 완료 명령을 분리 |
-| G-1 종료 상태 분리 | [N-03](small-nodes/N-03.md) · [N-11](small-nodes/N-11.md) | hangup → 다른 앱 → 완료 알림까지 |
-| G-2 부모님 안내 끄기 | [N-20](small-nodes/N-20.md) · [N-23](small-nodes/N-23.md) | 네트워크 공백과 관계없이 부모 표시부터 정리 |
-| G-3 통화 중 새 목표 · G-4 비활성 종료 P1 | [N-23](small-nodes/N-23.md) | 새 help_id, 새 이력. 30분 게이트는 P1로 검증 |
-| H-1 첫 설정 · H-2 양쪽 동의 | [N-01](small-nodes/N-01.md) · [N-02](small-nodes/N-02.md) | 화면별 단계적 안내와 철회 |
-| H-3 원본 비보관 | [N-04](small-nodes/N-04.md) · [N-08](small-nodes/N-08.md) · [N-25](small-nodes/N-25.md) | 원본의 서버/파일/로그 유입 검사 |
+| A-1~A-4 · 부모 발신·양쪽 통화·페어 승인·앱 밖 연속 | [B-01](big-nodes/B-01.md) · [B-02](big-nodes/B-02.md) | 두 AVD의 설정·시계 전환에서 음성 연속. 다른 사용자·동의 없음은 분석 거절 |
+| A-5 · 자녀 발신 P1 | [B-01](big-nodes/B-01.md) | P1 유지 |
+| B-1 · 분석·부모 상태 | [N-02](small-nodes/N-02.md) · [N-06](small-nodes/N-06.md) | 동의 후 역할별 확정. 자녀만 행동 트리거 |
+| B-2 · 버튼 지시 알아듣기 | [N-15](small-nodes/N-15.md) · [N-27](small-nodes/N-27.md) | 지시 20개 중 17개 이상 기대 해석 |
+| B-3 · 여러 지시 순차 처리 P1 | [N-15](small-nodes/N-15.md) | P0은 최신 단일 지시. 자동 큐는 P1 |
+| B · 목표 파악과 슬롯 | [N-15](small-nodes/N-15.md) | 지원 목표와 유효 슬롯을 추출. 모호하면 보류 |
+| C-1~C-12 · 통화 중 층별 위치·무개입·복구 | [N-16](small-nodes/N-16.md) · [N-27](small-nodes/N-27.md) · [N-28](small-nodes/N-28.md) · [B-06](big-nodes/B-06.md) | 자녀 지시 위치 미리 준비. 3초 이내 정답 0회 표시. 고정 증거로 TAP/SCROLL_DOWN/BACK을 검증 |
+| C-1~C-12 · 새 지시 재시작, 부모 발화, 보호, 터치 통과 | [N-11](small-nodes/N-11.md) · [N-19](small-nodes/N-19.md) · [N-20](small-nodes/N-20.md) | 이전 타이머·표시 폐기. 부모 발화의 조기 표시 0. 위험 지정 문구. 실제 터치 통과 |
+| C-13 · 통화 후 현재 화면 다음 안내 | [N-17](small-nodes/N-17.md) · [N-19](small-nodes/N-19.md) | 확정 종료 및 새 의미 화면 이후 3초. 현재 목표·후보 근거로 1단계 |
+| C-14 · 통화 후 도착 추정 | [N-18](small-nodes/N-18.md) · [N-22](small-nodes/N-22.md) | 자녀에게 추정 1회, 최종 완료 대기 |
+| C-15 · 통화 후 유효 상태·보류 | [B-05](big-nodes/B-05.md) · [B-06](big-nodes/B-06.md) | 최신 근거에 기반해 표시, 평가된 현재 후보가 없으면 대기 |
+| D-1 · 진행 기록 | [N-12](small-nodes/N-12.md) | 승인된 자녀 지시·대상 위치 ID·화면 전이·검증 근거. 원문 및 좌표 로그 제외 |
+| D-2 · 오조작 복귀 | [N-16](small-nodes/N-16.md) · [N-28](small-nodes/N-28.md) | 원래 지시 화면으로 검증된 역엣지. 공백을 넘기지 않음 |
+| D-3 · 통화 후 가장 가까운 경로 | [N-16](small-nodes/N-16.md) · [N-17](small-nodes/N-17.md) | 현재 화면에서 목표로 이어지는 가장 짧은 지원 경로의 첫 행동 |
+| D-4 · 이력 정리 | [N-23](small-nodes/N-23.md) | 종료 뒤 새 도움에서 이전 지시·이력 재사용 0 |
+| E-1, E-3, E-4 · 띠·완료 표시·접근성 | [N-20](small-nodes/N-20.md) · [N-21](small-nodes/N-21.md) | 부모 큰 글씨·안내 끄기·완료 문구, 표시 아래 터치 통과 |
+| E-2 · 첫 자녀 지시 또는 목표에서 스피커폰 | [N-03](small-nodes/N-03.md) | call_id당 1회. 연결 이어폰에 기존 출력 유지 |
+| F · 자녀 화면·도착 알림·도움 완료 | [B-07](big-nodes/B-07.md) | 통화 UI·도착 추정·완료만. 지시·진행·화면 데이터는 자녀 투영에서 제외 |
+| G-1, G-2 · 통화·도움 종료 분리와 부모 중단 | [N-11](small-nodes/N-11.md) · [N-23](small-nodes/N-23.md) | 통화 종료 뒤 기존 목표 유지. 부모 끄기에서 표시/캡처 정리 |
+| G-3 · 새 지시나 목표로 새 도움, G-4 비활성 종료 P1 | [N-11](small-nodes/N-11.md) · [N-23](small-nodes/N-23.md) | 완료 뒤 활성 통화·동의·다음 자녀 지시나 목표가 있어야 새 ID. 부모 중단은 재동의 필요 |
+| H-1~H-3 · 권한·동의·원본 보호 | [N-02](small-nodes/N-02.md) · [N-07](small-nodes/N-07.md) · [N-25](small-nodes/N-25.md) | 양쪽 승인·필요 시 화면 재승인. 화면 트랙·영속 원본·계정 정보 0건 |
 
-위험 요청에는 안내 표시 대신 자녀와 직접 확인하라는 문구를 표시한다. 권한이나 시스템의 보호 화면을 회피하는 기능은 없다. 같은 대상을 여러 요구 사항이 사용하는 경우 위 노드를 공유한다.
+위험 안내 문구는 **“되돌리기 어려운 동작이에요. 천천히 확인하세요”**다.

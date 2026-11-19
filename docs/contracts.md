@@ -1,93 +1,92 @@
-# 공통 계약
+# 구현 계약 · 자녀 지시와 통화 후 이어받기
 
-상위 구간은 [전체 구조](architecture.md), 요구사항별 구현·시험 담당은 [작업 배분](work-plan.md)을 참고한다. 아래는 P0 구현과 통합 테스트가 맞춰야 할 v1 계약이다.
+[전체 구조](architecture.md) · [NodeResult와 Diagnostic](node-result-contract.md) · [실험과 기대 결과](verification-plan.md)
 
-## ID와 버전
+## 스코프와 값의 소유자
 
-| 필드 | 생성 위치 | 규칙 |
+| 값 | 작성자 | 유효 범위와 변경 |
 |---|---|---|
-| pair_id | 제어 서버 | 승인된 부모 1명과 자녀 1명의 관계. 사용자에게 내부 ID를 보이지 않음 |
-| call_id | 제어 서버 | 통화 요청마다 새 ID. 내려받는 RTC 토큰은 해당 방과 역할에만 사용 |
-| help_id | 제어 서버 | 동의 유효한 최초 연결에서 LISTENING 생성. 한 통화에서 완료 후 다른 목표는 새 도움 ID 사용 |
-| utterance_id / utterance_seq | 발화 처리 | 부분 발화는 ID가 같고 확정만 제어 서버 처리. seq가 이미 적용된 확정 발화보다 작으면 폐기 |
-| goal_revision | 제어 서버 | 도움별 0으로 시작. 목표 확정·변경·슬롯 변경이 채택될 때 증가. 단순 모델 재호출에서는 유지 |
-| projection_epoch | 부모 AVD | MediaProjection 재승인으로 새로 시작할 때 새 값. 이전 캡처의 프레임과 결과 폐기 |
-| screen_revision | 부모 AVD | 의미 있는 화면 전이·재관찰로 증가. 같은 화면의 마이크로 프레임마다 증가시키지 않음 |
-| layout_revision | 부모 AVD | 크기·회전·스크롤·IME 등의 좌표 변화. 해당 위치를 새로 확인하기 전 표시 제거 |
-| decision_id | 제어 서버 | 요청과 모델 결과 추적. 동일 ID 수신을 중복 렌더하지 않음 |
-| event_id / event_seq | 발행자와 서버 | event_id는 재전송 중복 제거. event_seq는 서버의 도움별 수신 순서. 다른 장치의 시계를 비교해 이벤트를 정렬하지 않음 |
+| pair_id, call_id, help_id | 제어 서버 | 승인된 가족 관계, 통화 시도, 도움 1회를 각각 식별. 통화 종료 뒤 같은 help_id가 생존할 수 있다 |
+| event_id, event_seq | 발행자, 제어 서버 | event_id는 중복 제거, event_seq는 도움별 서버 처리 순서. 기기들의 벽시계로 정렬하지 않는다 |
+| consent_revision | 제어 서버 | 승인 상태가 바뀌면 증가. 동의 철회는 이미 준비된 결괏값도 무효화한다 |
+| mode, mode_revision | N-11 | CALL_CHILD_LED 또는 POST_CALL_AGENT. 실제 hangup 확정에서만 전환하고 revision 증가. 일시적 RTC 재연결은 대기 |
+| utterance_id, utterance_seq | N-06 | call_id의 확정 발화 식별. 같은 turn은 한 번 채택한다. 늦은 응답으로 새 자녀 발화를 덮지 않는다 |
+| instruction_id, instruction_revision | N-11 | CALL_CHILD_LED에서 채택한 최신 자녀 지시 하나. 새 지시마다 revision 증가. 모호하지만 분명히 새 지시인 턴은 이전 표시를 먼저 무효화 |
+| goal_revision | N-11 | 유효한 명시적 목표/슬롯을 채택했을 때만 증가. 변경 감지 질문 없이 최신 자녀의 명시적 목표 결과를 적용 |
+| projection_epoch, screen_revision, layout_revision | 부모 AVD | 캡처 재승인, 안정 의미 전이, 위치가 달라지는 레이아웃 전이를 구분. 스크롤만으로 통화 중 타이머를 재시작하지 않는다 |
+| decision_id, arrival_id | 서버 | 제안·도착의 중복 제거 키. Basis와 함께 전달 |
 
-좌표용 프레임 시각과 3초 타이머는 부모 단말의 monotonic clock에서 비교한다. 음성 끝 → 목표 표시 지연은 테스트 영상의 공통 시간축 또는 동일한 측정기에서 계산한다. 모의 로그의 벽시계는 지연 기준으로 사용하지 않는다.
+Basis의 필드와 결과 적용 규칙은 [공통 결과 계약](node-result-contract.md)을 따른다. `event_seq`는 인과 추적용이며 관련 버전 전체가 최신이면 서로 무관한 이벤트의 seq 증가만으로 결과를 버리지 않는다.
 
-## 전송과 권한
+## 자료형
 
-- WebSocket 제어 채널은 음성 RTC와 독립적으로 유지한다. 세션 서버에 대한 REST는 토큰·초대·상태 조회와 재접속 시 요약 조회에 사용한다. 네트워크 전송은 TLS를 사용한다. 로컬 개발 예외는 디버그 빌드에서만 허용한다.
-- 서버는 단말의 인증과 pair_id 소속, 역할, 호출/도움의 연결, 허용 상태를 다시 검사한다. 자녀는 screen.observe를 발행할 수 없고 부모는 help.complete를 발행할 수 없다. 도움 완료는 등록된 자녀, 안내 끄기는 등록된 부모만 보낼 수 있다.
-- 하트비트는 접속을 확인하는 용도다. 화면 최신성을 대신하지 않는다. 중복 완료, 늦게 도착한 목표, 이미 종료된 도움은 기존 응답을 재사용하거나 폐기한다.
-- 재접속은 최신 snapshot을 요청하고 과거 Overlay 명령을 재생하지 않는다. 화면을 다시 관찰한 시점에 새 선택을 요청한다. 라이브 데모 P0에서 다중 서버·분산 세션 복구는 범위에 포함하지 않는다.
+아래 키는 필수다. `?`는 null을 허용한다. ID는 승인된 스코프 안의 문자열이며 uint는 0 이상 정수다.
 
-## 이벤트와 예시
-
-모든 제어 이벤트는 v, type, event_id, pair_id, call_id, help_id를 사용한다. call_id/help_id는 생성 이전 이벤트에서만 null이 가능하다. actor는 인증으로 서버가 확정하며 클라이언트 값만 신뢰하지 않는다. payload는 이벤트별 타입이다.
-
-~~~json
-{
-  "v": 1,
-  "type": "guide.proposed",
-  "event_id": "e-031",
-  "pair_id": "pair-demo",
-  "call_id": "call-demo",
-  "help_id": "help-02",
-  "payload": {
-    "decision_id": "zoro-42",
-    "goal_revision": 2,
-    "projection_epoch": "capture-1",
-    "screen_revision": 8,
-    "choice_id": "tap.settings.screen_timeout",
-    "action": "TAP",
-    "target_id": "settings.screen_timeout",
-    "confidence": 0.91,
-    "valid_for_ms": 4500,
-    "message_key": "tap_visible_item"
-  }
-}
-~~~
-
-| 이벤트 | 보내는 쪽 → 받는 쪽 | payload의 최소 필드와 효과 |
+| 타입 | 필드 | 유효성 및 범위 |
 |---|---|---|
-| call.invite / accepted / ended | 인증된 역할 ↔ 서버 ↔ 상대 | 역할과 call_id, 종료 사유. accepted와 RTC 연결·동의를 확인한 뒤 STT 시작. ended는 STT만 닫을 수 있음 |
-| consent.updated | 각 단말 → 서버 | consent_revision, purpose, enabled. 캡처 가능 여부와 모델 처리 동의를 별도 상태로 유지 |
-| speech.final | STT → 서버 | utterance_id, seq, speaker_role, text, ended_at, source. text는 세션 처리 한정, 디버그 시험 입력은 source로 구분 |
-| screen.observed | 부모 → 서버 | projection_epoch, screen_revision, screen_kind, target_ids, verified_signals, observation_health. 원본·범용 OCR 텍스트·좌표는 제외 |
-| goal.updated | 서버 → 양쪽 | goal_id, goal_revision, 필요한 표시용 슬롯, source_utterance. 두 역할이 최신 revision 표시 |
-| guide.proposed / cleared | 서버 → 부모 | 위 제안 또는 폐기 이유. 부모가 로컬 최신 상태로 최종 검사 |
-| guide.shown / suppressed | 부모 → 서버 | decision_id, 현재 revision, elapsed_ms, 가려진 이유. 품질 로그에 원문 제외 |
-| arrival.suspected / revoked | 서버 → 자녀 | goal_revision, screen_revision, arrival_id, 요약된 근거 코드. 자동 완료하지 않음 |
-| help.complete / stop | 자녀 / 부모 → 서버 | help_id, 최신 goal_revision, 명시적 사유. 잘못된 버전이거나 종료된 ID면 새 도움을 건드리지 않음 |
-| help.ended | 서버 → 양쪽 | 사유와 종료 이벤트. 캐시·화면 안내 정리. COMPLETE이면 부모 화면에 완료 문구 |
+| FinalUtterance | utterance_id, utterance_seq, speaker_role, text, call_id, source | text는 세션 처리에 필요한 동안 휘발성으로만 사용. role은 LiveKit 트랙 소속에서 결정 |
+| InstructionDraft | source_utterance_id, target_key?, action, supersedes_previous | N-15의 권위 없는 기본 지시. N-11이 instruction_id와 revision을 발급 |
+| Instruction | instruction_id, instruction_revision, source_utterance_id, target_key?, action, origin_screen_revision? | P0은 최신 지시 하나, 허용 라벨/행동으로 정규화. 목록·원문은 자녀 화면에 전송하지 않음 |
+| GoalDraft | goal_id, approved_slots, source_utterance_id | 모델을 통과한 목표·슬롯. revision은 reducer만 발급 |
+| ScreenState | projection_epoch, screen_revision, screen_kind, target_ids[], evidence_codes[], observation_health | 부모 화면 분류·검증 증거만 전송. 본문, 좌표, 일반 OCR 텍스트 제외 |
+| LocalObservation | screen: ScreenState, layout_revision, captured_mono_ms, targets[] | 부모 프로세스 전용. targets는 target_id·Rect·검증 근거. 캡처가 멈추면 참조 폐기 |
+| Goal | goal_id, goal_revision, approved_slots, source_utterance_id | 지원 목표 카탈로그만 허용. 발화자가 자녀라고 해서 금지 동작을 허용하지 않음 |
+| TrailEntry | from_screen, to_screen, projection_epoch, evidence_codes[], reversible, observed_seq | 검증된 두 화면 사이 전이. 공백은 별도 marker, 잘못 누름 복귀와 통화 후 이력 검색에 사용 |
+| InstructionTrace | instruction_id, instruction_revision, target_id?, origin_screen_revision?, evidence_codes[], outcome | 최신 수락 지시·위치·수행 증거의 이력 요약. 원문 또는 좌표 미포함 |
+| NavigationTrail | entries[], directives[], gap_after_seq? | 최근 동일 도움의 검증 전이·지시 증거와 공백 위치 |
+| Candidate | choice_id, action, target_id?, label_key, evidence_codes[], path_distance? | 행동 하나를 표현. action은 TAP, BACK, SCROLL_DOWN, SCROLL_UP, INPUT_HINT, WAIT 중 하나. 좌표·실행 명령 제외 |
+| CandidateSet | candidates[], coverage, active_count, recovery_count | coverage는 complete, partial, policy_blocked. 배열 수와 계수 일치. [N-16](small-nodes/N-16.md) |
+| TargetDecision | location_kind, target_id?, anchor_screen_revision?, evidence_codes[], model_revision? | visible, below_fold, unknown, blocked. below_fold는 프로필과 현재 컨테이너 증거 모두 필요 |
+| ActionVerdict | verdict, instruction_revision, from_screen_revision, to_screen_revision, evidence_codes[], model_revision? | CORRECT, WRONG, UNKNOWN. NO_OBSERVED_INPUT은 발화 뒤 관찰이 연속적이고 변화 단서가 없는 N-19의 로컬 게이트 값 |
+| RecoveryHint | instruction_revision, anchor_screen_revision, first_edge_ref, path_distance, basis | N-16의 검증 역방향 경로 요약. ActionVerdict가 WRONG이고 최신 효과 버전과 일치할 때만 사용 |
+| GuideProposal | decision_id, mode, action, target_id?, message_key, confidence, valid_for_ms, basis | CALL_CHILD_LED는 정확한 지시·입력 근거 기반의 TAP/BACK/SCROLL_DOWN만. POST_CALL_AGENT는 현재 한 행동. 둘 다 실제 클릭 명령 금지 |
+| ArrivalDecision | arrival_id, arrived, goal_revision, evidence_codes[], basis | POST_CALL_AGENT에서 화면 증거가 검증된 경우에만. 자녀의 완료 명령과 분리 |
+| HelpSnapshot | help_id, call_state, help_state, mode, mode_revision, goal?, instruction?, screen?, trail_cursor, consent_revision, event_seq | N-11 원본 상태. 부모·자녀에게는 N-21이 필드별 권한 검사 후 투영 |
 
-### 상태와 로그
+### 두 판단의 결합
 
-~~~text
-NodeResult<T>
-  status = success | partial | error
-  outcome = 업무 결과 코드
-  data = T 또는 null
-  diagnostics = {node_id, trace_id, latency_ms, error_code?, retryable?}
-~~~
+N-15의 지시 해석은 스스로 성공했으면 목표 추론 완료를 기다리지 않고 B-05가 N-11에 초안을 보낸다. 같은 발화의 목표가 준비되면 B-05가 별도 목표 초안을 보낸다. 서버는 (utterance_id, 초안 유형)으로 중복을 막고, 최신 자녀 발화에만 두 종류를 허용한다. 최종 N-15 결과는 한 실행의 기록이며 초안을 다시 발행하지 않는다. 버튼을 정확히 탭했는지 확인할 때는 다른 실패나 늦은 목표 결과로 지시의 t0를 바꾸지 않는다.
 
-success / no_goal, success / no_target, success / not_arrived는 정상적인 업무 결과다. 모델 timeout이나 연결 실패를 확신 낮음으로 바꿔 기록하지 않는다. partial은 일부 입력이 실패했어도 검증된 상태를 제공할 때만 사용한다. 권한·버전 경계 실패는 실행 중단 또는 안전한 재관찰로 연결한다. 로그에는 역할, 버전, 결과 코드, 지연, revision 등만 남긴다. 확정 발화 텍스트도 영속 로그에 포함하지 않는다.
+## 이벤트와 전송
 
-## 화면·선택지·시간 기본값
+REST는 인증·페어·토큰·재연결 조회, TLS WebSocket은 역할 제어 이벤트에 쓴다. LiveKit은 음성 전송에 쓴다. 모든 제어 이벤트는 `v, type, event_id, pair_id, call_id, help_id, payload`를 갖는다. help/call을 아직 만들지 않았으면 해당 ID는 null이다. 서버는 인증 토큰에서 actor를 얻고, 도움·통화·역할·선행 권한을 검사한다.
 
-| 계약 | 내용 |
+| 이벤트 | 발행 → 수신 | payload 및 효과 |
+|---|---|---|
+| call.invite / accepted / ended | 각 역할·RTC → N-11 | 역할, 사유, call_id. ended에서 STT 닫기와 Agent 이어받기 평가 |
+| consent.updated | 해당 역할 → N-11 | purpose, enabled, consent_revision. 철회에서 표시·동의 범위 정리 |
+| speech.final | N-06 → N-11/N-15 | FinalUtterance. 부모 발화는 통화 중 계측만 하며 지시·목표·타이머를 만들지 않음 |
+| instruction.accepted / cleared | N-11 → 부모 게이트 | 정규화된 Instruction 또는 취소 사유. 최초 수신으로만 부모 시각을 설정 |
+| goal.updated | N-11 → 부모·내부 | Goal. 자녀에게 목표·지시·단계 진행 투영 없음 |
+| screen.observed | 부모 → N-11 | ScreenState. 보호/관찰 중단은 건강 상태만 전송 |
+| target.located | N-27 → N-19, N-11 | TargetDecision과 Basis. 캡처와 지시 스코프 유지 |
+| recovery.ready | N-16 → N-19 | RecoveryHint와 최신 Basis. 옛 화면 좌표 없이 경로 첫 행동만 |
+| action.assessed | N-28 → N-19, N-11 | ActionVerdict와 Basis. 입력 시각의 관측 근거와 스코프를 보존 |
+| guide.proposed / cleared | N-17 또는 B-05 → 부모 | GuideProposal 또는 폐기 이유. 표시 여부는 N-19가 로컬 재검사 |
+| guide.shown / suppressed | 부모 → N-11 | decision_id, instruction/goal/mode/screen revision, elapsed_ms, 사유. 화면 내용은 제외 |
+| arrival.suspected / revoked | N-22 → 자녀 | arrival_id, 도착 추정 여부. 원문 및 세부 진행 이력 제외 |
+| help.complete / stop | 해당 자녀 / 부모 → N-22 | help_id, 종료 이유, 최신 스코프. 같은 명령은 한 번만 적용 |
+| help.ended | N-23 → 양쪽 | end_event_id, reason. 도움 캐시 정리. 완료는 부모 완료 문구 |
+
+## 통화 중 3초 게이트
+
+1. 자녀의 지시를 정규화해 부모 앱이 `instruction.accepted`를 처음 적용했을 때의 단조 시각을 `t0`로 잡는다. deadline = t0 + 3000ms. 위치 결정, 네트워크 재전송, 프레임 수신, 부모 발화는 시작점이 아니다. `발화 종료 → t0`는 별도 지연으로 보고한다.
+2. 위치 탐색은 t0 전후로 병렬 진행한다. 다른 지시가 오면 이전 타이머·표시·후보를 즉시 폐기하고 새 t0만 세운다. 같은 instruction_id 재수신은 재예약하지 않는다.
+3. 마감까지 맞는 행동 증거가 있으면 표시 0회, 진행 단위는 끝난다. 마감과 동일 시각의 증거는 표시보다 먼저 처리한다. `관측 됐으나 판정 대기` 상태에서는 렌더를 보류한다. 뒤늦게 받은 과거 근거는 표시 후 즉시 제거하되 타이밍 실험에서 과거 오표시를 성공 처리하지 않는다.
+4. 마감부터 연속 관찰에서 조작 단서가 없고 화면이 유효하면, 보이는 정확한 버튼은 TAP 표시, 아래 위치가 입증되면 스크롤 문구. 지시와 다른 결과가 검증되고 원래 화면으로 검증된 역엣지가 있을 때 BACK 문구를 표시한다. 충돌 증거·캡처 공백·무효 레이아웃·판정 대기에서는 테두리를 띄우지 않는다.
+5. 앱은 전역 터치를 수집하지 않는다. 외부 앱 화면의 전이·상태 차이에서만 조작 결과를 확인한다. 프레임만으로 알 수 없는 입력과 위치는 `UNKNOWN`이며 연속 관찰의 무변화와 나누어 기록한다.
+6. 위험은 표시 게이트 밖의 보호 문구만 허용한다. **되돌리기 어려운 동작이에요. 천천히 확인하세요**. 자동 클릭·입력·발송은 금지한다.
+
+## 통화 후 3초 게이트
+
+확정된 hangup 뒤 N-11이 `POST_CALL_AGENT`로 한 번 전환한다. 유효 목표가 있으면 최신 부모 화면을 재확인하고, 전환 시 첫 안정 화면이나 이후 의미 화면 전이를 부모가 관측한 시각부터 3,000ms 뒤에 한 행동을 제안할 수 있다. 로컬에서 적용한 mode_revision과 goal_revision이 같아야 한다. 지난 지시의 타이머와 응답은 이전 모드에 묶여 폐기된다. Zoro-1의 `NEXT_ACTION`과 `ARRIVAL`은 이 모드에서만 호출한다. 검증된 현재 선택이 없으면 기다린다. 도착 추정은 자녀에게 보내고 최종 종료는 자녀가 확정하거나 부모가 안내를 끈다.
+
+## 공통 구현값
+
+| 항목 | 초기 계약 |
 |---|---|
-| ScreenState | 후보는 안정적인 target_id와 사전에 승인한 label_key를 사용. 화면의 본문·개인 정보·모델 지시로 오해할 만한 문자열을 상태 값으로 보내지 않음 |
-| Candidate | choice_id, action, target_id 또는 null, label_key, 현재 화면 증거. 사용자 입력에 필요한 값은 승인된 목표 슬롯에서만 가져오고 운영 로그에는 기록하지 않음 |
-| GuideAction | TAP, BACK, SCROLL_DOWN, SCROLL_UP, INPUT_HINT, WAIT, ASK_CHILD. 홈 이동 요청은 시스템 홈 조작을 설명하는 TAP 유형의 텍스트 전용 후보로 제한 |
-| 금지 | 자동 클릭·입력·실행 없음. 삭제·공장 초기화·계정 제거·OTP/비밀번호 전달·모르는 URL·모르는 수신자에는 가이드 후보를 만들지 않음. 정책은 모델 호출 전후 모두 적용 |
-| 인식 안정화 | 로컬 처리 초기값 초당 2–4 프레임, 같은 의미 화면이 2회 확인된 뒤 확정. 지연과 발열 실측 후 조정 |
-| 3초 안내 | 목표 확정/변경 또는 의미 있는 화면 전이의 부모 단말 관측부터 3,000ms가 지나면 표시 가능. 기존 강조는 즉시 제거. 영상으로 검증하는 PRD 수용 범위는 3초 ±1초 |
-| 유효성 | 제안 수신 시부터 valid_for_ms만큼 살되 goal_revision 및 화면·캡처 버전이 바뀌면 즉시 폐기. 마지막 로컬 프레임이 1초 넘게 오래됐으면 재관찰 후 적용 |
-| 모델 확신 | 시작값 예시 top ≥0.70, top–second ≥0.15. 20개 대화 검증으로 조정. 확률 보정을 검증한 값이 아니며 단일 판단·리허설 결과와 함께 기록 |
-| 모델 호출 | 새 확정 발화, 유효 목표 생성·변경, 안정된 의미 화면/완료 근거 변경에서 호출. 픽셀마다 호출하지 않음. 독립 질문은 모델이 지원하는 경우 한 요청으로 묶고 의존하는 판단은 새 상태에서 차례로 호출 |
+| 안정 관측 | 같은 의미 화면이 연속 두 번 확인될 때 안정 처리. 초기 표본 속도 2–4fps. 프레임 최신성 기준 1초, 실제 장치 실험으로 조정 |
+| 좌표 표시 | 화면·모드·목표/지시·동의·epoch 재검사. layout_revision과 로컬 좌표 재매칭. 오래된 UI와 보호 화면은 제거 |
+| 제안 만료 | 수신 시점부터 valid_for_ms. 만료는 새 입력 조건이 될 수 있으나 같은 Basis를 반복 추론하지 않는다 |
+| 모델 기준 | 시작값 top ≥0.70, top−second ≥0.15. 고정 revision과 검증된 후보 ID. 보류·모델 오류를 분리 |
+| 현재와 이전 결과 | 검증된 상태 변경만 N-11에 커밋. 이전 노드는 새 이벤트와 참조로 읽는다. 원문·원본·좌표 영속 로그 없음 |

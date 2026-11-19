@@ -7,7 +7,7 @@
 | 제안 경로 | 책임 | 데모용 대체 입력 |
 |---|---|---|
 | android/rtc 및 android/child | 두 역할 통화 화면, 권한 UI, 자녀 화면 | RTC가 완성되기 전에도 화면 이벤트 계약 스텁으로 사용자 상태 테스트 |
-| android/observer 및 android/overlay | 프레임 처리, 화면 레지스트리, 부모 로컬 좌표·3초·표시 | 지원 화면 단서 fixture 또는 개발 메뉴 타깃. 최종 시연 판정에는 실화면 필요 |
+| android/observer 및 android/overlay | 프레임 처리, 화면 레지스트리, 조작 결과 단서, 부모 로컬 좌표·모드별 3초·표시 | 지원 화면 단서 fixture 또는 개발 메뉴 타깃. 최종 시연 판정에는 실화면 필요 |
 | server/session | 페어·초대·제어 채널, 도움 상태, 연결·정리·최종 완료 | 합성 speech.final과 screen.observed로 reducer 통합 시험 |
 | server/agent | 선택지 구성·상태 조건·Zoro 추론 adapter | 상태 머신 테스트에서는 고정 응답을 허용. 결과에 simulated 표시 |
 | demo/fixtures | 앱별 샘플 화면의 비민감 ID·기대값, 합성 발화, 지연 시험 입력 | 환자나 가족의 실제 미디어를 테스트 자산으로 사용하지 않음 |
@@ -23,24 +23,24 @@
 | POST /v1/calls/{call_id}/accept | 해당 자녀 | 수락 및 각 역할의 단기 RTC 토큰 발급 경로 활성 |
 | POST /v1/calls/{call_id}/rtc-token | pair 참가자 | 승인된 call/역할에만 토큰 발급. 실음성 룸 접속 |
 | GET /v1/help/current | 해당 pair 참가자 | 역할별 현재 상태. 연결 재개 시 명령 전체를 받지 않음 |
-| WS /v1/events | 인증된 pair 참가자 | 서버 명령·목표·완료와 부모 화면 메타 이벤트. 역할별 발행어 검사 |
+| WS /v1/events | 인증된 pair 참가자 | 서버 지시/목표, 역할별 완료/도착과 부모 화면 메타 이벤트. 역할별 발행어 검사 |
 
 CONFLICT는 이전 goal_revision/이미 열린 call 등을 구분해 반환한다. 권한 위반은 FORBIDDEN, 잘못된 스키마는 INVALID_EVENT, 상태가 없으면 NOT_FOUND로 처리한다. 연결 상태는 서버가 승인한다. 네트워크 공백이 생기면 로컬의 안전한 정리부터 수행하고 서버는 재접속에 최신 상태만 내보낸다.
 
 ## 상태 전이 예시
 
-| 시각 | 입력 | 서버 상태 | 부모 표시와 자녀 상태 |
+| 지점 | 인증 입력 | 서버 상태 | 화면·부수 효과 |
 |---|---|---|---|
-| t0 | 실제 통화 연결 | call ACTIVE, help LISTENING | 파악 중, 원 없음 |
-| t1 | 말 끝에서 FONT 확정 | goal_revision=1 | 양쪽 FONT, 로컬 3초 예약 |
-| t2 | Settings 화면 전환 | screen_revision=7 | 이전 표시 제거, 현재 대상 선택 |
-| t3 | timeout으로 정정 | goal_revision=2 | 이전 테두리 제거, 표시 시각 재예약 |
-| t4 | 이전 FONT 모델 응답 | 버전 불일치 | 폐기. 자녀 목표는 TIMEOUT 유지 |
-| t5 | 올바른 10분 상태 관찰 | ARRIVAL_PENDING | 부모의 다음 가이드 없음, 자녀 추정 알림 |
-| t6 | 자녀 완료 명령 | help ENDED | 앱 UI 갱신 및 도움 이력 정리 |
-| t7 | 통화가 살아 있고 새 알람 목표 | 새 help_id | 이전 목표와 좌표 없이 재시작 |
+| t0 | 두 역할 통화 연결 | call ACTIVE, mode CALL_CHILD_LED, 지시 없음 | 듣는 중. 표시 0 |
+| t1 | 자녀 “디스플레이 눌러 줘” | instruction_revision=1, 대상 위치 탐색 | 부모는 최초 수신 시 3초 예약 |
+| t2 | 3초 전 정답 전이 | N-28 CORRECT | 테두리 0개, 새 지시 대기 |
+| t3 | 새 자녀 지시 및 명시 목표 | instruction_revision=2, 새 목표가 다르면 goal_revision 증가 | 새 3초, 구 표시·제안 즉시 정리 |
+| t4 | 부모가 다른 메뉴 조작 | WRONG 및 같은 epoch의 검증된 역엣지 | 마감 뒤 “뒤로 가기” |
+| t5 | 확정 hangup | mode_revision 증가; POST_CALL_AGENT; 같은 help_id | RTC/STT 중지, 이전 지시 타이머 취소, 안정 화면에서 새 3초 |
+| t6 | 목표 충족 근거 | ARRIVAL_PENDING | 자녀 도착 추정. 인식 지시·진행 없음 |
+| t7 | 자녀 명시 완료 | help ENDED | 부모 완료 문구, 모든 도움 기록 제거 |
 
-3초 마감 중 핑이나 디버그 로그가 초과하면 과거 목표나 좌표를 어떻게든 표시하는 정책을 만들지 않는다. 동일 화면의 로컬 최신성이 확인된 경우에만 뒤늦은 표시를 따로 기록한다.
+부모 발화, 레이아웃 위치 변동, 중복을 새 지시로 처리하지 않는다. 앱이 관측한 의미 전이와 마감 판정은 부모 단말의 동일 단조 시계를 쓴다.
 
 ## 필수 합의와 순서
 

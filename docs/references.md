@@ -2,7 +2,7 @@
 
 ## 제품과 참고 문서
 
-- 제품 요구사항은 사용자가 전달한 PRD v2 pp. 1–11을 기준으로 한다. 시연 A·B는 pp. 9–10, 제품 요구 ID는 pp. 4–8을 따른다.
+- 제품의 문제·사용자·지원 목표는 사용자가 전달한 PRD v2를 따른다. 실시간 개입, 인계와 시연 A·B는 이후 전달받은 변경사항을 반영했다.
 - 문서 계층은 ReportAnchor JS의 Big/Small Node 표와 공통 결과 계약을 참고했다. 효자손의 실시간 실행 구조는 해당 저장소의 문서 질의 처리 구조와 별개다. [ReportAnchor JS](https://github.com/Jungminii-1114/ReportAnchor/tree/ad430ab123c61332e099765ab3e1a21c81c8dc7e/docs)
 
 ## 사용하는 공식 경로
