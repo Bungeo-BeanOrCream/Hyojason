@@ -48,6 +48,11 @@ curl -sS localhost:8000/v1/dev/outbox
 서버 상태를 안 바꾸고 인식만 볼 때(원문 출력은 dev 전용):
 `PAIR_ID=<PID> .venv/bin/python -m hyojason_voice.worker <call_id> --print-text [--no-keywords]`
 
+## 앱 폴링
+
+`GET /v1/calls/current`: 페어의 진행 중 통화(`call_id, call_state, caller_role, accepted, connected_roles`) 또는 `null`.
+앱(`android/child`)이 화면이 보이는 동안 1.5초마다 물어 수신·수락·상대 끊음을 안다. D의 `WS /v1/events`가 생기면 이벤트로 바꾼다.
+
 ## 텍스트 입력 스텁 (C·D용)
 
 ```bash

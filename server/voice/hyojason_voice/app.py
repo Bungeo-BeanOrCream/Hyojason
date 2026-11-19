@@ -281,6 +281,29 @@ async def end_call(call_id: str, x_actor_id: str = Header(), x_pair_id: str = He
     return _call_op(Operation.END, _actor(x_actor_id, x_pair_id), call_id)
 
 
+@app.get("/v1/calls/current")
+async def current_call(x_actor_id: str = Header(), x_pair_id: str = Header()):
+    """페어의 진행 중 통화(없으면 null). 앱이 수신·수락·종료를 알기 위해 짧은 주기로 묻는다.
+
+    ponytail: 폴링. D의 WS /v1/events가 생기면 call.* 이벤트로 바꾸고 이 경로는 재연결 복구용으로만 둔다.
+    """
+    _actor(x_actor_id, x_pair_id)
+    for c in calls.expire():  # 응답 없는 통화를 여기서도 끝낸다
+        _ended(c, None)
+    cid = calls.active_by_pair.get(x_pair_id)
+    call = calls.get(cid) if cid else None
+    if call is None:
+        return None
+    v = call.view()
+    return {
+        "call_id": call.call_id,
+        "call_state": v.call_state.value,
+        "caller_role": call.caller_role.value,
+        "accepted": call.accepted,
+        "connected_roles": [r.value for r in v.connected_roles],
+    }
+
+
 @app.post("/v1/calls/{call_id}/rtc-token")
 async def rtc_token(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
     """수락된 진행 중 통화의 참여자에게만, 그 통화 방(room=call_id) 마이크 발행 권한만 준다."""

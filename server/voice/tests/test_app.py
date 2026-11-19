@@ -183,3 +183,20 @@ def test_call_end_deletes_livekit_room(monkeypatch):
     c.post(f"/v1/calls/{cid}/end", headers=P)  # 중복 종료는 다시 지우지 않음
     c.get("/v1/dev/outbox")  # 이벤트 루프가 한 번 더 돌게
     assert deleted == [cid]
+
+
+def test_current_call_for_polling():
+    c = _client()
+    pid = c.post("/v1/pairs/invite", json={"role": "CHILD"}, headers={"X-Actor-Id": "C"}).json()["pair_id"]
+    code = next(k for k, v in m.pairs.invites.items() if v.pair_id == pid)
+    c.post("/v1/pairs/claim", json={"role": "PARENT", "invite_code": code}, headers={"X-Actor-Id": "P"})
+    P, C = {"X-Actor-Id": "P", "X-Pair-Id": pid}, {"X-Actor-Id": "C", "X-Pair-Id": pid}
+    assert c.get("/v1/calls/current", headers=P).json() is None
+    cid = c.post("/v1/calls", headers=C).json()["data"]["call_id"]  # 자녀 발신
+    cur = c.get("/v1/calls/current", headers=P).json()
+    assert cur == {"call_id": cid, "call_state": "RINGING", "caller_role": "CHILD", "accepted": False, "connected_roles": []}
+    c.post(f"/v1/calls/{cid}/accept", headers=P)
+    assert c.get("/v1/calls/current", headers=C).json()["accepted"] is True
+    c.post(f"/v1/calls/{cid}/end", headers=P)
+    assert c.get("/v1/calls/current", headers=C).json() is None
+    assert c.get("/v1/calls/current", headers={"X-Actor-Id": "Z", "X-Pair-Id": pid}).status_code == 403
