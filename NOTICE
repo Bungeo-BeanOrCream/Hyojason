@@ -1,0 +1,13 @@
+Hyojason (효자손)
+Copyright 2026 Hyojason contributors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party components under their own licenses:
+
+- GTCRN speech enhancement model (server/voice/hyojason_voice/models/gtcrn_simple.onnx)
+  Copyright (c) 2024 Rong Xiaobin. MIT License.
+  See server/voice/hyojason_voice/models/LICENSE-GTCRN.
+
+- Gradle Wrapper (android/gradlew, android/gradlew.bat, android/gradle/wrapper/)
+  Copyright the original authors. Apache License, Version 2.0.
