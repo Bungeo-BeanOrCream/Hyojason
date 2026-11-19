@@ -47,3 +47,13 @@ Windows에서는 Android Studio 동기화와 CLI 빌드에 영문 경로를 사�
 ```powershell
 .\gradlew.bat :contract:test :observer:testDebugUnitTest :overlay:testDebugUnitTest :rtc:testDebugUnitTest :child:testDebugUnitTest :app:assembleDebug
 ```
+
+## 외부 시연용 APK
+
+공개 HTTPS 백엔드에서 `/healthz`와 WebSocket `/v1/events`에 접속할 수 있어야 한다. 주소를 `hyojasonBackendUrl` Gradle 속성으로 넘겨 APK를 빌드한다.
+
+```powershell
+.\gradlew.bat :app:assembleRelease "-PhyojasonBackendUrl=https://demo.example.com"
+```
+
+설치용 APK는 팀의 배포 키로 서명한다. 속성을 생략한 로컬 디버그 빌드는 에뮬레이터에서 호스트 PC의 포트 8000에 연결한다. LiveKit, RTZR, Zoro-1 인증 정보는 백엔드에 설정한다. [통합 백엔드 실행](../server/README.md)
