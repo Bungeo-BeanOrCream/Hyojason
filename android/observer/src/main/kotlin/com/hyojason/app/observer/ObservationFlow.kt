@@ -38,15 +38,20 @@ class ObservationFlow(
     private val scan: (DetectionInput) -> List<FeatureScan>,
     previousScreenRevision: Long = 0,
     previousLayoutRevision: Long = 0,
+    private val reuseIdenticalScans: Boolean = false,
 ) {
+    private data class CachedScan(val fingerprint: ByteArray, val layoutRevision: Long, val features: List<FeatureScan>)
+
     private val preparation = FramePreparation(projectionEpoch)
     private val stabilizer = ScreenStabilizer(projectionEpoch, previousScreenRevision, previousLayoutRevision)
+    private var cachedScan: CachedScan? = null
 
     fun process(frame: CaptureFrame, diagnostic: Diagnostic, screenHint: String? = null): ObservationOutcome {
         val prepared = preparation.prepare(frame, diagnostic)
         val local = prepared.data ?: return ObservationOutcome(prepared, null, null)
         return local.use {
             if (it.frame_health != FrameHealth.READY) {
+                cachedScan = null
                 val protectedScreen = it.frame_health == FrameHealth.PROTECTED
                 val sample = ScreenSample(
                     projectionEpoch, it.captured_mono_ms,
@@ -57,7 +62,7 @@ class ObservationFlow(
                 return@use ObservationOutcome(prepared, null, stabilizer.observe(sample, diagnostic))
             }
             val input = DetectionInput(it, profileId, profileRevision, screenHint, profileVersion)
-            val detected = detection.detect(input, scan(input), diagnostic)
+            val detected = detection.detect(input, scanFrame(input), diagnostic)
             val sample = detected.data?.let { data -> detection.sample(input, data, projectionEpoch) }
                 ?: ScreenSample(
                     projectionEpoch, it.captured_mono_ms, UNKNOWN_SCREEN_KIND, it.layout_revision,
@@ -65,5 +70,24 @@ class ObservationFlow(
                 )
             ObservationOutcome(prepared, detected, stabilizer.observe(sample, diagnostic))
         }
+    }
+
+    private fun scanFrame(input: DetectionInput): List<FeatureScan> {
+        val frame = input.local_frame
+        val pixels = frame.frame_ref?.pixels
+        if (!reuseIdenticalScans || pixels == null) return scan(input)
+
+        // A newly captured frame must match all normalized pixels before reusing its features.
+        val fingerprint = pixels.fingerprint()
+        val cached = cachedScan
+        if (cached != null && cached.layoutRevision == frame.layout_revision &&
+            cached.fingerprint.contentEquals(fingerprint)
+        ) return cached.features
+
+        val features = scan(input)
+        cachedScan = if (features.isNotEmpty() && features.all { it.succeeded }) {
+            CachedScan(fingerprint, frame.layout_revision, features)
+        } else null
+        return features
     }
 }
