@@ -2,6 +2,7 @@ package com.hyojason.app.child
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.SystemClock
@@ -264,10 +265,23 @@ open class HomeActivity : Activity() {
         }
         root.spacer()
         root.primary("${peer}에게 전화") { withMic { dial() } }
-        root.body("다른 가족과 다시 연결하기", 14f).setOnClickListener {
-            store.reset(); store = Store(this); api = Api(store); joinedCall = null
-            say(null); render(Screen.CONNECT, force = true)
-        }
+        root.body("가족 연결 끊기", 14f).setOnClickListener { confirmUnpair(peer) }
+    }
+
+    /** 통화가 끝나도 가족 연결은 남는다. 끊는 건 이 버튼뿐이라 한 번 더 묻는다. 서버가 못 받아도 이 기기는 끊는다. */
+    private fun confirmUnpair(peer: String) {
+        AlertDialog.Builder(this)
+            .setMessage("${peer} 기기와의 가족 연결을 끊을까요? 다시 쓰려면 새 번호로 연결해야 해요.")
+            .setPositiveButton("끊기") { _, _ ->
+                scope.launch {
+                    api.unpair()
+                    leave(); current = null
+                    store.reset(); store = Store(this@HomeActivity); api = Api(store)
+                    say(null); render(Screen.CONNECT, force = true)
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     private fun dial() = scope.launch {

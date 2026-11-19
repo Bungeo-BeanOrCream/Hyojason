@@ -99,6 +99,9 @@ class Api(private val s: Store) {
         runCatching { withContext(Dispatchers.IO) { fetchRtcToken(s.server, s.token!!, callId) } }
 
     /** 진행 중 통화. 없으면 null. 페어를 서버가 모르면(재시작 등) UNAUTHORIZED 실패. */
+    /** 가족 연결 끊기. 진행 중 통화도 서버가 끝낸다. 상대 기기는 다음 폴링에서 UNAUTHORIZED를 받고 연결 화면으로. */
+    suspend fun unpair(): Result<Unit> = call("POST", "/v1/pairs/unpair").map { }
+
     suspend fun current(): Result<CurrentCall?> = call("GET", "/v1/calls/current").map { body ->
         if (body.isBlank() || body == "null") return@map null
         val j = JSONObject(body)

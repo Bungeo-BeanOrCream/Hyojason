@@ -178,7 +178,7 @@ class SessionHub:
         return self.register_call(actor.pair_id, new_id("call"), new_id("trace"), assisted_role)
 
     def register_call(self, pair: str, call_id: str, trace_id: str,
-                      assisted_role: Role = Role.PARENT) -> SessionControl:
+                      assisted_role: Role = Role.PARENT, *, inviter: Role = Role.PARENT) -> SessionControl:
         """Attach the help session to the call ID already allocated by the voice service."""
         with self._lock:
             existing = self._calls.get(call_id)
@@ -197,10 +197,10 @@ class SessionHub:
             )
             self._calls[call_id] = control
             self._pair_calls.setdefault(pair, []).append(call_id)
-        update = self._apply_or_raise(control, "call.invite", "PARENT", dispatch=False)
+        update = self._apply_or_raise(control, "call.invite", inviter.value, dispatch=False)
         s = control.snapshot
-        # 자녀 앱은 수신 알림을 먼저 받고, 그 뒤 역할 화면을 받는다
-        self.deliver(pair, Role.CHILD, wire.control_event("call.invite", pair, s.call_id, s.help_id, {}))
+        callee = Role.CHILD if inviter is Role.PARENT else Role.PARENT
+        self.deliver(pair, callee, wire.control_event("call.invite", pair, s.call_id, s.help_id, {}))
         self._dispatch(control, update)
         return control
 

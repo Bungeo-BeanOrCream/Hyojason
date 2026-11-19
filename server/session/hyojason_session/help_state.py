@@ -168,6 +168,7 @@ class _State:
     arrival_id: str | None = None
     used_epochs: frozenset[str] = frozenset()
     acceptance_confirmed: bool = False
+    inviter: str | None = None
     call_fence: int = 0
 
     def update(self, **changes):
@@ -203,7 +204,7 @@ def _basis(current: HelpSnapshot, supplied: Basis, *names):
 
 
 _PUBLISHERS = {
-    "call.invite": ("PARENT",), "call.accepted": ("CHILD",),
+    "call.invite": ("PARENT", "CHILD"), "call.accepted": ("PARENT", "CHILD"),
     "call.connected": ("SERVER",), "call.reconnecting": ("SERVER",), "call.ended": ("SERVER",),
     "consent.updated": ("PARENT", "CHILD"), "projection.started": ("PARENT", "CHILD"),
     "screen.observed": ("PARENT", "CHILD"), "speech.final": ("SERVER",),
@@ -320,7 +321,7 @@ class HelpSession:
         if kind in _ASSISTED_EVENTS:
             _require(role == s.assisted_role, "UNAUTHORIZED")
         if kind.startswith("call."):
-            return self._call(state, kind, effects)
+            return self._call(state, kind, effects, role)
         if kind == "consent.updated":
             _basis(s, basis, "consent_revision")
             _require(p["purpose"] == "analysis" and type(p["enabled"]) is bool)
@@ -442,7 +443,7 @@ class HelpSession:
     def _active_call(s):
         _require(s.mode == "CALL_CHILD_LED" and s.call_state == "ACTIVE", "STALE_BASIS")
 
-    def _call(self, state, kind, effects):
+    def _call(self, state, kind, effects, role):
         s = state.snapshot
         if kind == "call.ended":
             state.update(call_state="ENDED")
@@ -463,6 +464,7 @@ class HelpSession:
 
         if kind == "call.accepted":
             _require(s.call_state == "RINGING", "NOT_APPLICABLE")
+            _require(role != state.inviter, "UNAUTHORIZED")
             if state.acceptance_confirmed:
                 return "duplicate_ignored"
             state.acceptance_confirmed = True
@@ -475,6 +477,8 @@ class HelpSession:
         if s.call_state == dest:
             return "duplicate_ignored"
         _require(s.call_state in source, "NOT_APPLICABLE")
+        if kind == "call.invite":
+            state.inviter = role
         state.update(call_state=dest)
         if dest == "RECONNECTING":
             state.call_fence = s.event_seq + 1
