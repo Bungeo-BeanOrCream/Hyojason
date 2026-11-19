@@ -6,14 +6,13 @@ import com.hyojason.app.contract.NodeResult
 import com.hyojason.app.contract.NodeStatus
 import com.hyojason.app.contract.StepDiagnostic
 import com.hyojason.app.contract.StepStatus
-
-/** Semantic controls come from the profile. They can remain the same as visible targets scroll out. */
-data class SemanticScreen(val kind: String, val controlIds: Set<String>)
+import com.hyojason.app.observer.detection.PROTECTED_SCREEN_KIND
+import com.hyojason.app.observer.detection.UNKNOWN_SCREEN_KIND
 
 data class ScreenSample(
     val projectionEpoch: String,
     val capturedMonoMs: Long,
-    val semantic: SemanticScreen,
+    val screenKind: String,
     val frameLayoutRevision: Long,
     val visibleTargets: List<LocalTarget>,
     val verifiedSignals: Set<String>,
@@ -35,6 +34,7 @@ data class Stabilization(
     val screenToPublish: ScreenState?,
     val locationInvalidated: Boolean,
     val verdictPending: Boolean,
+    val fromScreenRevision: Long? = null,
 )
 
 /** One serialized instance per active projection epoch. */
@@ -43,11 +43,12 @@ class ScreenStabilizer(
     previousScreenRevision: Long = 0,
     previousLayoutRevision: Long = 0,
 ) {
+    private data class Meaning(val kind: String, val evidence: Set<String>)
+
     private var screenRevision = previousScreenRevision
     private var layoutRevision = previousLayoutRevision
     private var lastCapturedMonoMs: Long? = null
-    private var stableSemantic: SemanticScreen? = null
-    private var pendingSemantic: SemanticScreen? = null
+    private var pendingMeaning: Meaning? = null
     private var frameLayoutRevision: Long? = null
     private var current: LocalObservation? = null
 
@@ -62,51 +63,56 @@ class ScreenStabilizer(
             return Stabilization(null, NodeResult(NodeStatus.ERROR, null, null, failure), null, true, false)
         }
         if (sample.capturedMonoMs <= (lastCapturedMonoMs ?: -1)) {
-            return Stabilization(null, null, null, true, pendingSemantic != null)
+            return Stabilization(null, null, null, true, pendingMeaning != null)
         }
         lastCapturedMonoMs = sample.capturedMonoMs
         if (sample.health == ObservationHealth.GAP || sample.health == ObservationHealth.PROTECTED) {
             return gap(sample.health, base)
         }
         if (sample.health != ObservationHealth.STABLE) {
-            pendingSemantic = null
+            pendingMeaning = null
             return Stabilization(null, null, null, true, true)
         }
 
-        val hasBaseline = current != null && pendingSemantic == null
-        val needsConfirmation = !hasBaseline || sample.semantic != stableSemantic
-        if (needsConfirmation && sample.semantic != pendingSemantic) {
-            pendingSemantic = sample.semantic
+        val meaning = Meaning(sample.screenKind, sample.verifiedSignals.toSet())
+        val previousMeaning = current?.screen?.let { Meaning(it.screen_kind, it.evidence_codes) }
+        val needsConfirmation = meaning != previousMeaning || pendingMeaning != null
+        if (needsConfirmation && meaning != pendingMeaning) {
+            pendingMeaning = meaning
             return Stabilization(null, null, null, true, true)
         }
-        pendingSemantic = null
-        return confirm(sample, base)
+        pendingMeaning = null
+        return confirm(sample, meaning, meaning != previousMeaning, base)
     }
 
     private fun gap(health: ObservationHealth, diagnostic: Diagnostic): Stabilization {
         require(health == ObservationHealth.PROTECTED || health == ObservationHealth.GAP)
-        pendingSemantic = null
+        pendingMeaning = null
         current = null
         frameLayoutRevision = null
-        val screen = ScreenState(projectionEpoch, screenRevision, "unknown", emptySet(), emptySet(), health)
+        val kind = if (health == ObservationHealth.PROTECTED) PROTECTED_SCREEN_KIND else UNKNOWN_SCREEN_KIND
+        val screen = ScreenState(projectionEpoch, screenRevision, kind, emptySet(), emptySet(), health)
         return Stabilization(null, result("observation_gap", screen, diagnostic), screen, true, false)
     }
 
-    private fun confirm(sample: ScreenSample, diagnostic: Diagnostic): Stabilization {
+    private fun confirm(
+        sample: ScreenSample,
+        meaning: Meaning,
+        semanticChanged: Boolean,
+        diagnostic: Diagnostic,
+    ): Stabilization {
         val previous = current
-        val semanticChanged = sample.semantic != stableSemantic
-        val layoutChanged = previous == null || semanticChanged ||
+        val layoutChanged = previous == null ||
             sample.frameLayoutRevision != frameLayoutRevision ||
             geometry(sample.visibleTargets) != geometry(previous.targets)
         if (semanticChanged) screenRevision++
         if (layoutChanged) layoutRevision++
 
-        stableSemantic = sample.semantic
         frameLayoutRevision = sample.frameLayoutRevision
         val screen = ScreenState(
-            projectionEpoch, screenRevision, sample.semantic.kind,
+            projectionEpoch, screenRevision, meaning.kind,
             sample.visibleTargets.mapTo(mutableSetOf()) { it.target_id },
-            sample.verifiedSignals, ObservationHealth.STABLE,
+            meaning.evidence, ObservationHealth.STABLE,
         )
         val local = LocalObservation(screen, layoutRevision, sample.capturedMonoMs, sample.visibleTargets.toList())
         current = local
@@ -115,10 +121,15 @@ class ScreenStabilizer(
             layoutChanged -> "layout_changed"
             else -> null
         }
-        val publish = semanticChanged || previous == null || previous.screen.evidence_codes != screen.evidence_codes
+        val publish = semanticChanged || previous?.screen?.target_ids != screen.target_ids
+        val fromScreenRevision = previous?.screen?.screen_revision?.takeIf { semanticChanged }
         return Stabilization(
-            local, outcome?.let { result(it, screen, diagnostic) },
-            screen.takeIf { publish }, layoutChanged, semanticChanged && previous != null,
+            local = local,
+            result = outcome?.let { result(it, screen, diagnostic) },
+            screenToPublish = screen.takeIf { publish },
+            locationInvalidated = layoutChanged || semanticChanged,
+            verdictPending = fromScreenRevision != null,
+            fromScreenRevision = fromScreenRevision,
         )
     }
 

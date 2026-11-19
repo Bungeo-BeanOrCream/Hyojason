@@ -4,7 +4,6 @@ import com.hyojason.app.observer.LocalRect
 import com.hyojason.app.observer.LocalTarget
 import com.hyojason.app.observer.ObservationHealth
 import com.hyojason.app.observer.ScreenSample
-import com.hyojason.app.observer.SemanticScreen
 import com.hyojason.app.contract.Diagnostic
 import com.hyojason.app.contract.NodeResult
 import com.hyojason.app.contract.NodeStatus
@@ -29,7 +28,11 @@ data class DetectionInput(
     val profile_id: String,
     val profile_revision: Int,
     val screen_hint: String?,
+    val profile_version: ProfileVersion?,
 )
+
+/** The local runtime identity of the app and the AVD image checked by the profile. */
+data class ProfileVersion(val appVersionName: String, val avdImage: String)
 
 data class DetectionData(
     val screen_kind: String,
@@ -42,7 +45,7 @@ data class DetectionData(
 data class ProfileScreen(
     val kind: String,
     val anchors: List<Set<FeatureKey>>,
-    val targets: Map<String, Set<FeatureKey>>,
+    val targets: Map<String, TargetRule>,
     val signals: Map<String, FeatureKey> = emptyMap(),
 ) {
     init {
@@ -50,9 +53,17 @@ data class ProfileScreen(
     }
 }
 
+/** For repeated labels, a registered row marker must contain the label's bounds. */
+data class TargetRule(
+    val aliases: Set<FeatureKey>,
+    val rowMarker: FeatureKey? = null,
+    val requiredFeatures: Set<FeatureKey> = emptySet(),
+)
+
 class DetectionProfile(
     val id: String,
     val revision: Int,
+    val profile_version: ProfileVersion,
     val screens: List<ProfileScreen>,
 )
 
@@ -69,6 +80,13 @@ class ScreenDetection(private val profiles: List<DetectionProfile>) {
         if (viewport == null || pixels == null || input.local_frame.frame_health != FrameHealth.READY) {
             return failure(diagnostic, "N-09", "detect_targets", "CAPTURE_GAP")
         }
+        if (input.profile_version != profile.profile_version) {
+            return NodeResult(
+                NodeStatus.SUCCESS, "no_targets",
+                DetectionData(UNKNOWN_SCREEN_KIND, emptyList(), emptySet(), DetectionCoverage.COMPLETE, FrameHealth.READY),
+                recorded(diagnostic, "N-09", "match_profile"),
+            )
+        }
         if (scans.none { it.succeeded }) {
             return failure(diagnostic, "N-09", "detect_targets", "DEPENDENCY_UNAVAILABLE")
         }
@@ -81,10 +99,16 @@ class ScreenDetection(private val profiles: List<DetectionProfile>) {
             (input.screen_hint == null || input.screen_hint == candidate.kind) &&
                 candidate.anchors.any { keys.containsAll(it) }
         }.singleOrNull()
-        val targets = screen?.targets.orEmpty().mapNotNull { (id, aliases) ->
-            val matches = features.filter { it.key in aliases }.map { it.rect }.distinct()
+        val targets = screen?.targets.orEmpty().mapNotNull { (id, rule) ->
+            if (!keys.containsAll(rule.requiredFeatures)) return@mapNotNull null
+            val row = if (rule.rowMarker == null) null else {
+                features.filter { it.key == rule.rowMarker }.map { it.rect }.distinct().singleOrNull()
+                    ?: return@mapNotNull null
+            }
+            val matches = features.filter { it.key in rule.aliases && (row == null || row.contains(it.rect)) }
+                .map { it.rect }.distinct()
             matches.singleOrNull()?.let { LocalTarget(id, it, setOf("PROFILE_MATCH")) }
-        }
+        }.groupBy { it.rect }.values.mapNotNull { it.singleOrNull() }
         val partial = scans.any { !it.succeeded }
         val outcome = when {
             partial -> "observation_partial"
@@ -94,7 +118,7 @@ class ScreenDetection(private val profiles: List<DetectionProfile>) {
         return NodeResult(
             if (partial) NodeStatus.PARTIAL else NodeStatus.SUCCESS, outcome,
             DetectionData(
-                screen?.kind ?: "unknown", targets,
+                screen?.kind ?: UNKNOWN_SCREEN_KIND, targets,
                 screen?.signals.orEmpty().filterValues { it in keys }.keys.toSet(),
                 if (partial) DetectionCoverage.PARTIAL else DetectionCoverage.COMPLETE,
                 FrameHealth.READY,
@@ -104,14 +128,13 @@ class ScreenDetection(private val profiles: List<DetectionProfile>) {
     }
 
     fun sample(input: DetectionInput, data: DetectionData, projectionEpoch: String): ScreenSample {
-        val profile = profiles.single { it.id == input.profile_id && it.revision == input.profile_revision }
-        val screen = profile.screens.singleOrNull { it.kind == data.screen_kind }
         return ScreenSample(
             projectionEpoch, input.local_frame.captured_mono_ms,
-            SemanticScreen(data.screen_kind, screen?.targets.orEmpty().keys.toSet() + data.verified_signals),
+            data.screen_kind,
             input.local_frame.layout_revision, data.targets, data.verified_signals,
-            if (screen != null && data.coverage == DetectionCoverage.COMPLETE) ObservationHealth.STABLE
-            else ObservationHealth.GAP,
+            if (data.screen_kind != UNKNOWN_SCREEN_KIND && data.coverage == DetectionCoverage.COMPLETE) {
+                ObservationHealth.STABLE
+            } else ObservationHealth.GAP,
         )
     }
 

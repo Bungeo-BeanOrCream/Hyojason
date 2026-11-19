@@ -10,15 +10,26 @@ import com.hyojason.app.observer.LocalRect
 class KoreanTextScan : AutoCloseable {
     private val recognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
-    fun scan(frame: LocalFrame, profile: DetectionProfile, onResult: (FeatureScan) -> Unit) {
+    fun scan(input: DetectionInput, profile: DetectionProfile, onResult: (FeatureScan) -> Unit) {
+        val frame = input.local_frame
         val pixels = frame.frame_ref?.pixels
         val viewport = frame.viewport
         if (pixels == null || viewport == null || frame.frame_health != FrameHealth.READY) {
             onResult(failed())
             return
         }
+        if (input.profile_id != profile.id || input.profile_revision != profile.revision) {
+            onResult(failed())
+            return
+        }
+        if (input.profile_version != profile.profile_version) {
+            onResult(FeatureScan(FeatureKind.TEXT, true, emptyList()))
+            return
+        }
         val allowed = profile.screens.flatMap { screen ->
-            screen.anchors.flatten() + screen.targets.values.flatten()
+            screen.anchors.flatten() + screen.targets.values.flatMap { rule ->
+                rule.aliases + listOfNotNull(rule.rowMarker) + rule.requiredFeatures
+            }
         }.filter { it.kind == FeatureKind.TEXT }.associateBy { it.value }
         val buffer = pixels.copyArgb()
         val image = try {
