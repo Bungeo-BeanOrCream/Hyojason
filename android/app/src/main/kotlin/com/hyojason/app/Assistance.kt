@@ -541,7 +541,33 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         }
     }
 
+    private var homeHintShown = false
+
+    /**
+     * EXPERIMENT (#37): with a goal but the parent in an app the profile does not know (or our own call
+     * screen), the first step is to go back to the home screen. Show it as a swipe hint above the
+     * gesture bar. It stays until a known screen is observed, so GAP frames do not make it flicker.
+     */
+    private fun renderHomeHint(): Boolean {
+        val goal = goalContext?.optString("goal_id").orEmpty()
+        val away = frames != null && receivesHelp && connected && goal.isNotEmpty() &&
+            published?.screen_kind == "unknown"
+        if (!away) {
+            if (homeHintShown) { host.clear(); homeHintShown = false }
+            return false
+        }
+        if (!homeHintShown) {
+            clearSettingsNotice("go_home")
+            displayed = null
+            host.clear()
+            homeHintShown = host.showBanner(HOME_GO) && host.showSwipeHint(HOME_GO)
+            if (homeHintShown) Log.i(NOTICE_LOG, "home_go_hint")
+        }
+        return true
+    }
+
     private fun render() {
+        if (renderHomeHint()) return
         val value = decision ?: return clearOverlay()
         val offerId = value.stringOrNull("decision_id") ?: return clearOverlay()
         val basis = value.optJSONObject("basis")?.let(::basisFrom) ?: return clearOverlay()
@@ -595,7 +621,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         if (observation.screen.screen_kind == "home" && next.action == GuideAction.SCROLL_DOWN) {
             if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
             if (displayed != null) host.clear()
-            if (host.showBanner(HOME_SWIPE_UP)) {
+            if (host.showBanner(HOME_SWIPE_UP) && host.showSwipeHint(HOME_SWIPE_UP)) {
                 displayed = next
                 renderBasis = basis
                 renderOfferId = offerId
@@ -746,6 +772,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         published = null
         decision = null
         lastStableKind = null
+        if (homeHintShown) { host.clear(); homeHintShown = false }
         clearOverlay("capture_stopped")
         lastSettingsNotice = null
     }
@@ -765,7 +792,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         private const val OCR_LOG = "HyojasonOcr"
         private const val FRAME_LOG = "HyojasonFrame"
         private const val PROBE = "probe."
-        private const val HOME_SWIPE_UP = "아래에서 위로 쓸어 올려 앱 목록을 열어 주세요"
+        private const val HOME_SWIPE_UP = "위로 쓸어 올려 앱 목록을 열어 주세요"
+        private const val HOME_GO = "화면 맨 아래를 위로 밀어 홈으로 가 주세요"
         private val LAUNCHER_APPS = listOf(
             "launcher.settings", "launcher.clock", "launcher.maps", "launcher.sms", "launcher.gmail")
         private const val PROBE_ABOVE = "probe.above#"

@@ -47,7 +47,7 @@ class DebugGuideReceiver : BroadcastReceiver() {
                 if (!Settings.canDrawOverlays(app)) {
                     resultData = "no_overlay_permission"; Log.w(TAG, resultData); return
                 }
-                val inset = intent.getIntExtra("y_offset", statusBarHeight(app))
+                val inset = intent.getIntExtra("y_offset", 0)  // host lays borders out in screen coordinates now
                 val left = intent.getIntExtra("left", -1).coerceAtLeast(0)
                 val top = (intent.getIntExtra("top", -1) - inset).coerceAtLeast(0)
                 val right = intent.getIntExtra("right", -1)
