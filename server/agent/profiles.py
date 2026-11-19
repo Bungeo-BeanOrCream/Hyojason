@@ -215,6 +215,11 @@ def required_arrival_evidence(goal: Goal) -> tuple[str, ...]:
     return ()
 
 
+def sms_draft_evidence(recipient_id: object = "demo-recipient", message_id: object = "demo-sms") -> str:
+    """문자 초안이 승인된 상대·문구로 채워졌다는 근거 코드. 값은 D 시연 자산 ID (#3)."""
+    return f"sms_draft:{recipient_id}:{message_id}"
+
+
 def _is_asset(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"demo-[a-z0-9-]{1,60}", value) is not None
 
