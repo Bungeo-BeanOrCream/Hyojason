@@ -12,7 +12,8 @@
 | [N-21 project_role_view](../small-nodes/N-21.md) | 서버 로직, FIXTURE 테스트 통과. **실기기 UNVERIFIED** | `tests/test_n21_project_role_view.py` (21.1~21.4 + 완료 기준) |
 | [N-22 resolve_arrival_or_completion](../small-nodes/N-22.md) | 서버 로직 + `SessionControl.submit_command/submit_arrival` 연동, FIXTURE 테스트 통과. 실기기 UNVERIFIED | `tests/test_n22_resolve_arrival_or_completion.py` (22.1~22.5 + 완료 기준, 동시 종료), `test_session_completion.py` |
 | [N-23 purge_help_and_restart](../small-nodes/N-23.md) | 서버 로직 + 클라이언트 참조 구현 + N-11 `help.purge` 효과로 모든 종료에 연동, FIXTURE 테스트 통과. 실기기 UNVERIFIED | `tests/test_n23_purge_help_and_restart.py` (23.1~23.5 + 완료 기준), `test_session_completion.py` |
-| B-07 흐름 (N-22→N-11→N-23→N-13) | 실제 N-11(`SessionControl`) 위에서 확인. 이벤트 수신·라우팅(엔드포인트)은 아직 없음 | `tests/test_session_completion.py`, 격리판 `tests/test_b07_integration.py` (B07.1~B07.4) |
+| B-07 흐름 (N-22→N-11→N-23→N-13) | 실제 N-11(`SessionControl`) 위에서 확인. 제어 서버 경로로도 확인(`test_control_server.py`) | `tests/test_session_completion.py`, 격리판 `tests/test_b07_integration.py` (B07.1~B07.4) |
+| 제어 서버 (FastAPI, `hyojason_session/api`) | 뼈대 구현: `WS /v1/events`, `GET /v1/help/current`, 페어·통화 경로(MOCK), 서버 내부 경로. 실제 uvicorn으로 기동·WS 왕복 확인. 결과는 FIXTURE | `tests/test_control_server.py` |
 | [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현. FIXTURE 검증 | `tests/test_n24_prepare_demo_fixtures.py` |
 | [N-25 evaluate_end_to_end](../small-nodes/N-25.md) | 지정 표본의 증거·출처·판정 및 모델·비용 보고 구현. FIXTURE 검증 | `tests/test_n25_evaluate_end_to_end.py` · [실행 방법](../../demo/fixtures/README.md) |
 
@@ -28,8 +29,9 @@
 | `mocks.ScopedBuffer(INFERENCE_RESULTS)` / `control._NoDataHeld` | B-05 추론 후보·제안·판단 결과 (C). 세션 서버에 아직 저장소가 없어 실제 경로는 빈 자리 | C의 결과 저장이 서버에 생기면 `result_stores`로 연결 |
 | `mocks.ScopedBuffer(PENDING_UTTERANCES)` / `control._NoDataHeld` | B-02 대기 확정 발화 (B). 실제 경로는 빈 자리 | B의 발화 큐가 서버에 생기면 `result_stores`로 연결 |
 | `mocks.RecordingEventSink` | WS /v1/events 제어 채널 (D). `SessionControl(events=...)`로 주입, 없으면 전달 실패로 기록 | 제어 엔드포인트 구현 시 |
-| `mocks.StaticPairDirectory` | N-01 resolve_pair 페어 승인 (B) | B의 N-01 연동 시 |
-| `ActorContext` 직접 주입 | B-01 인증 토큰 검증 (B) | 제어 엔드포인트 구현 시 |
+| `mocks.StaticPairDirectory` | N-01 resolve_pair 페어 승인 (B), N-13 격리 테스트 | B의 N-01 연동 시 |
+| `mocks.MockPairingService` | N-01 페어 승인·N-03 통화 수락 시 RTC 연결 확인·LiveKit 토큰(null) (B) | 이슈 #10에서 B 판단 함수를 받으면 교체 |
+| `mocks.MockTokenAuthenticator` | B-01 인증 토큰 검증 (B). 고정 가짜 토큰 → 역할·페어 | 이슈 #10 3번(토큰 형식) 답 뒤 교체 |
 | `client_resume_gate.py`, `client_cleanup.py` (Python) | 부모·자녀 앱의 재접속·종료 처리 (A·B, Kotlin) | `android/contract` 골격(이슈 #1) 뒤 A·B가 이식 |
 | `manifest.fixture.json`, `evidence.fixture.json` | AVD·앱·권한·연결 점검과 소수 합성 실행 기록 | A·B·C의 실측 증거 수집 후 `LIVE`로 별도 평가 |
 
@@ -56,11 +58,10 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 
 ## 다음 할 일
 
-1. **제어 서버(앱 연동의 전제, 아직 없음).** FastAPI로 다음을 만든다 (결정 메모 7, 분담은 이슈 #10).
-   - REST `GET /v1/help/current`(N-13), `WS /v1/events` 인증 연결.
-   - 수신: `help.complete/stop` → `SessionControl.submit_command`, N-18 결과 → `submit_arrival`, 그 밖의 이벤트 → `SessionControl.apply`.
-   - 송신: N-11 효과(`instruction.accepted/cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `arrival.*`, `guide.suspend`, `observation.stop` 등)를 역할별로 보내는 경로. 지금은 계산만 되고 보내는 곳이 없다(`help.ended`만 EventSink로 나감).
-   - 상태가 바뀔 때마다 N-21 역할 화면을 다시 보내는 경로 (B-07 정책 1). 지금은 N-13 재접속 때만 쓰인다.
+1. **제어 서버 — 뼈대 완료, 남은 연결.** FastAPI 뼈대(결정 메모 7)에 수신·송신 경로와 N-21 화면 재전송까지 들어갔다. 남은 것:
+   - 이슈 #10: B의 페어·통화·토큰 판단 함수와 인증 토큰 형식을 받아 `MockPairingService`·`MockTokenAuthenticator`를 교체.
+   - 봉투 `trace_id` 합의(아래 2) 뒤 송신 이벤트에 싣기. 지금 trace_id는 `POST /v1/calls` 응답과 서버 내부 결과에만 있다.
+   - A·B 앱이 WS에 붙어 실제 메시지로 확인 (지금은 테스트 클라이언트·uvicorn 스모크뿐).
 2. **제어 이벤트 봉투에 `trace_id` 추가 합의** (이슈 #5, A·B). 발급은 서버로 결정됨(결정 메모 6). 합의되면 `docs/contracts.md` PR에 함께 넣고, 제어 서버 구현 때 통화 단위 trace_id를 발급·전달한다.
 3. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
 4. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.

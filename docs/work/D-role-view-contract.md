@@ -85,3 +85,20 @@ trace_id는 서버가 발급한다(D-status 결정 메모 6). 이를 앱과 주�
 앱은 부모 N-09·N-10·N-19 기록, 자녀 앱 기록, 리허설 증거 파일에 같은 trace_id를 찍는다. 통화 생성 응답을 받기 전에는 지시·안내가 생기지 않으므로 그 전 기록은 판정에 쓰지 않는다.
 
 확인 요청: A(부모 앱 기록·증거 내보내기), B(자녀 앱·통화 생성 응답 처리).
+
+## 7. 제어 채널(WS /v1/events) 메시지 (제안)
+
+제어 서버 뼈대(`server/session/hyojason_session/api`)에서 정한 규칙이다. 봉투는 contracts.md 7키를 그대로 쓰고, 그 밖의 키가 있으면 거절한다.
+
+| 방향 | 메시지 | 내용 |
+|---|---|---|
+| 앱 → 서버 | 부모: `consent.updated`, `projection.started`, `screen.observed`, `guide.shown`, `guide.suppressed`, `help.stop` / 자녀: `consent.updated`, `help.complete` | 역할은 토큰에서 정한다. 목록 밖 이벤트는 거절. 서버는 받은 시점의 서버 Basis로 N-11에 적용하고, 앱의 `help_id`가 현재 도움과 다르면 거절(STALE_BASIS) |
+| 서버 → 앱 | `event.ack` {event_id, outcome} / `event.rejected` {event_id, code, node_code} | 앱이 보낸 이벤트마다 하나. code는 FORBIDDEN·INVALID_EVENT·NOT_FOUND·CONFLICT (implementation-contract) |
+| 서버 → 앱 | `help.view` {role, pair_id, call_id, help_id, parent_view, child_view} | 상태가 바뀔 때마다 N-21 역할 화면 (B-07 정책 1). 재접속은 `GET /v1/help/current` |
+| 서버 → 부모 | N-11 효과: `instruction.accepted`, `instruction.cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `guide.suspend`, `observation.stop`, `audio.evaluate` | payload에 해당 값과 `basis`(식별자·버전뿐) |
+| 서버 → 자녀 | `call.invite`, `help.view`, `arrival.suspected`, `arrival.revoked`, `help.ended` | 이 다섯 가지 밖의 이벤트는 자녀에게 보내지 않는다 |
+| 양방향 | `ping` {event_id} → `pong` {event_id} | 연결 확인. 앞서 보낸 메시지가 모두 나간 뒤 온다 |
+
+REST 오류는 `{"error": {"code", "node_code"}}`이고, 토큰이 없거나 틀리면 401 UNAUTHENTICATED다.
+
+확인 요청: A(부모 앱 수신 처리), B(자녀 앱 수신 처리·`call.invite` 뒤 `POST /v1/calls/{id}/accept`).
