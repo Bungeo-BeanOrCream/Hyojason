@@ -4,6 +4,14 @@
 
 Trillion Labs Hackathon Track 1에서 개발하는 프로토타입입니다. [대회 안내](https://hackathon.trillionlabs.co/)
 
+## 안내 미리보기
+
+가족이 통화 중 설정 앱을 눌러 달라고 말한 예시입니다. 오른쪽 화면에서는 상단 안내문으로 앱 이름을 확인하고, 빨간 테두리가 생긴 **설정(Settings)** 아이콘을 직접 누를 수 있습니다.
+
+| 음성 인식 전 · 앱 목록 | 음성 인식 후 · 설정 앱 안내 |
+| :---: | :---: |
+| <img src="docs/assets/voice-guidance/settings-before.webp" width="270" alt="안내가 뜨기 전, 여러 앱 사이에 설정 아이콘이 있는 Android 앱 목록"> | <img src="docs/assets/voice-guidance/settings-after.webp" width="270" alt="화면 상단에 설정 앱을 누르라는 안내문이 나타나고 오른쪽 아래 설정 아이콘에 빨간 테두리가 생긴 모습"> |
+
 ## Overview
 
 > “엄마, 설정에서 디스플레이 눌러 줘.”
