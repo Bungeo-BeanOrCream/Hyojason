@@ -259,26 +259,30 @@ def test_06_4_consent_revoked_or_changed_mid_turn():
     assert f.finalize(_fin(1), OK, **T).outcome == "final_committed"
 
 
-# ---- worker: RTZR 이벤트 → N-05 ----
+# ---- worker: RTZR 이벤트 → N-05 → hooks.final ----
 
 
-def test_worker_maps_rtzr_events_and_hides_text(capsys):
+def test_worker_passes_only_final_and_locks_consent_revision():
     import asyncio
 
     from livekit.agents import stt as lkstt
 
-    from hyojason_voice.worker import _recognize
+    from hyojason_voice.worker import CallHooks, _recognize
 
     def ev(t, text):
         return lkstt.SpeechEvent(type=t, alternatives=[lkstt.SpeechData(language="ko", text=text)])
 
-    async def fake():
-        yield lkstt.SpeechEvent(type=lkstt.SpeechEventType.START_OF_SPEECH)
-        yield ev(lkstt.SpeechEventType.INTERIM_TRANSCRIPT, "디스플")
-        yield ev(lkstt.SpeechEventType.FINAL_TRANSCRIPT, "디스플레이 눌러 줘")
-        raise ConnectionError("rtzr down")
+    rev = [5]
+    finals = []
 
-    asyncio.run(_recognize(Role.CHILD, "c1", fake(), show_text=False))
-    out = capsys.readouterr().out.splitlines()
-    assert out == ["[CHILD] transcribed FINAL HIGH (10자)", "[CHILD] error DEPENDENCY_UNAVAILABLE: ConnectionError"]
-    assert "디스플" not in "\n".join(out)  # --print-text 없으면 원문 없음
+    async def fake():
+        yield ev(lkstt.SpeechEventType.INTERIM_TRANSCRIPT, "디스플")  # 여기서 동의 버전 5를 잠금
+        rev[0] = 6  # 발화 도중 동의가 바뀜
+        yield ev(lkstt.SpeechEventType.FINAL_TRANSCRIPT, "디스플레이 눌러 줘")
+        yield ev(lkstt.SpeechEventType.FINAL_TRANSCRIPT, "  ")  # no_speech → 안 넘김
+        raise ConnectionError("rtzr down")  # 예외는 삼키고 끝 (통화는 유지)
+
+    hooks = CallHooks(lambda r: None, lambda r: None, lambda: OK.__class__(True, True, True, True, rev[0]),
+                      lambda *a: finals.append(a))
+    asyncio.run(_recognize(Role.CHILD, "c1", fake(), hooks))
+    assert [(f[0], f[1], f[2], f[3], f[5]) for f in finals] == [(Role.CHILD, "CHILD-1", 1, "디스플레이 눌러 줘", 5)]

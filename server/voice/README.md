@@ -33,16 +33,20 @@ D가 main에 합쳐지면 `PYTHONPATH` 설정과 worktree가 필요 없다(`pypr
 | `finalize.py` | N-06 중복·역순·종료 후 결과 차단, 자녀 발화만 triggered | FIXTURE |
 | `events.py` | `call.invite/accepted/connected/ended`, `speech.final` 봉투 | — |
 | `app.py` | 제어 엔드포인트 + dev 텍스트 입력 스텁 | FIXTURE |
-| `worker.py` | 방에 숨은 참가자로 들어가 역할별 마이크를 RTZR로 인식, 콘솔 출력 (N-04→N-05) | LIVE 확인 전 |
+| `worker.py` | 수락 때 자동 실행. 참가·퇴장 → N-03, 역할별 마이크 → N-04 → RTZR → N-05 → N-06 | LIVE 확인 전 |
 
-## STT worker (콘솔 확인)
+## STT worker
 
-서버와 같은 셸 준비(`PYTHONPATH`, `.env`) 뒤, 통화가 수락된 `call_id`로 실행한다. 브라우저/AVD가 같은 방에 들어와 있어야 한다.
+통화가 수락되면 서버가 그 방에 worker를 자동으로 띄운다(서버 셸에 `.env`가 올라가 있어야 함. 없으면 경고만 찍고 음성만).
+worker가 방에서 본 참가·퇴장이 N-03 JOINED/END가 되고, 확정문이 N-06을 거쳐 `speech.final`(source=`stt`)이 된다.
 
 ```bash
-.venv/bin/python -m hyojason_voice.worker <call_id> --print-text   # --print-text는 dev 전용 (원문 출력)
-.venv/bin/python -m hyojason_voice.worker <call_id> --no-keywords  # 키워드 부스팅 끄고 비교
+scripts/dev_call.sh                 # 새 페어·양쪽 동의·통화·수락 → 부모/자녀 링크 출력
+curl -sS localhost:8000/v1/dev/outbox
 ```
+
+서버 상태를 안 바꾸고 인식만 볼 때(원문 출력은 dev 전용):
+`PAIR_ID=<PID> .venv/bin/python -m hyojason_voice.worker <call_id> --print-text [--no-keywords]`
 
 ## 텍스트 입력 스텁 (C·D용)
 

@@ -2,17 +2,22 @@
 
 실행: uvicorn hyojason_voice.app:app --reload --port 8000  (에뮬레이터에서는 http://10.0.2.2:8000)
 
+통화가 수락되면 STT worker를 같은 이벤트 루프의 작업으로 띄운다(_start_worker). worker가 방에서 본
+참가·퇴장이 N-03 JOINED/END가 되고, 확정문이 N-06을 거쳐 speech.final이 된다. 그래서 LiveKit 웹훅이 필요 없다.
+ponytail: 프로세스 하나가 모든 통화의 worker를 돈다. 통화가 많아지면 LiveKit Agents dispatch로 분리.
+
 아직 없는 것:
 - 실제 인증. 지금은 X-Actor-Id / X-Pair-Id 헤더를 믿는다(dev 전용).
-- LiveKit 웹훅. 참가 콜백은 /v1/dev/.../joined로 대신한다.
 - D로 가는 WS 전송. 발행 이벤트는 OUTBOX에 쌓고 /v1/dev/outbox로 본다.
 
-모든 핸들러는 async def이고 안에서 await하지 않는다 → 이벤트 루프 하나에서 한 요청씩 돈다.
-ponytail: 이게 상태 잠금 역할이다. 핸들러에 await(외부 호출)가 생기면 asyncio.Lock으로 바꿀 것.
+핸들러와 worker 콜백은 상태를 바꾸는 동안 await하지 않는다 → 이벤트 루프 하나에서 한 번에 하나씩 돈다.
+ponytail: 이게 상태 잠금 역할이다. 그 사이에 await(외부 호출)가 생기면 asyncio.Lock으로 바꿀 것.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from collections import deque
 from dataclasses import asdict
@@ -27,19 +32,24 @@ from hyojason_session.help_state import Event
 from livekit import api as lk
 from pydantic import BaseModel, Field
 
-from .call import CallRegistry, Operation, start_or_close_call
+from . import worker
+from .call import CallEndReason, CallRegistry, Operation, start_or_close_call
 from .common import identity
 from .consent import Capability, ConsentState, ConsentUpdate, Purpose, resolve_consent
-from .events import MANUAL_TEST, call_event, speech_final_event
+from .events import MANUAL_TEST, STT, call_event, speech_final_event
 from .finalize import FinalizeRequest, TurnFinalizer
 from .pair import PairRegistry, PairRequest, resolve_pair
 from .stt import Finality
 
+logging.basicConfig(level=logging.WARNING)
+logging.getLogger("hyojason").setLevel(logging.INFO)  # 원문은 찍지 않는다(글자 수·outcome만)
+log = logging.getLogger("hyojason.app")
 app = FastAPI(title="hyojason-voice (B)")
 pairs = PairRegistry()
 calls = CallRegistry()
 consents: dict[str, ConsentState] = {}
 finalizers: dict[str, TurnFinalizer] = {}
+workers: dict[str, asyncio.Task] = {}  # call_id -> STT worker 작업
 # (trace_id, event). D의 Event 봉투에는 trace_id 칸이 없어 옆에 붙여 둔다.
 OUTBOX: deque[tuple[str, Event]] = deque(maxlen=1000)  # ponytail: D의 WS /v1/events가 생기면 거기로 publish
 
@@ -90,6 +100,8 @@ def _ended(call, role: Role | None) -> None:
     """통화가 끝났을 때 한 번: STT 확정 경로를 닫고(B02.3) call.ended를 낸다. help.stop은 만들지 않는다."""
     if call.call_id in finalizers:
         finalizers[call.call_id].close()
+    if task := workers.pop(call.call_id, None):
+        task.cancel()  # 구독 해제·STT 스트림 닫기·버퍼 폐기는 worker.run의 finally
     _publish(call_event("call.ended", call.pair_id, call.call_id, role, call.end_reason), call.trace_id)
 
 
@@ -153,25 +165,85 @@ async def consent(body: ConsentBody, x_actor_id: str = Header(), x_pair_id: str 
 # ---- N-03 ----
 
 
-def _call_op(op: Operation, actor: ActorContext, call_id: str | None = None) -> dict:
+def _transition(
+    op: Operation, actor: ActorContext, call_id: str | None = None, reason: CallEndReason = CallEndReason.HANGUP
+) -> NodeResult:
+    """N-03 한 번 + 그에 따른 이벤트 발행·worker 시작. HTTP 핸들러와 worker 콜백이 같이 쓴다."""
     for c in calls.expire():  # 수락·참가 시간 초과
         _ended(c, None)
     before = calls.get(call_id) if call_id else None
     was_open = before is not None and before.state is not CallState.ENDED
-    result = start_or_close_call(op, actor, calls, call_id=call_id)
+    result = start_or_close_call(op, actor, calls, call_id=call_id, reason=reason)
     if was_open and before.state is CallState.ENDED:
         _ended(before, actor.role)
     if result.status is Status.ERROR:
-        return _reply(result)
+        return result
     v, tid = result.data, result.diagnostics.trace_id
     if op is Operation.START:
         _publish(call_event("call.invite", actor.pair_id, v.call_id, actor.role), tid)
     elif op is Operation.ACCEPT:
         _publish(call_event("call.accepted", actor.pair_id, v.call_id, actor.role), tid)
+        _start_worker(calls.get(v.call_id))
     elif result.outcome == "active" and v.call_id not in finalizers:
         finalizers[v.call_id] = TurnFinalizer(actor.pair_id, v.call_id)
         _publish(call_event("call.connected", actor.pair_id, v.call_id, None), tid)
-    return _reply(result)
+    return result
+
+
+def _call_op(op: Operation, actor: ActorContext, call_id: str | None = None) -> dict:
+    return _reply(_transition(op, actor, call_id))
+
+
+# ---- STT worker 연결 (N-03 참가·퇴장, N-04~N-06) ----
+
+
+def _hooks(call_id: str) -> worker.CallHooks:
+    call = calls.get(call_id)
+    pair_id = call.pair_id
+
+    def member(role: Role) -> ActorContext:
+        return ActorContext(pairs.members[pair_id][role], pair_id, role)
+
+    def joined(role: Role) -> None:
+        _transition(Operation.JOINED, member(role), call_id)
+
+    def left(role: Role) -> None:  # 앱의 /end 없이 방을 나감 = RTC 끊김
+        _transition(Operation.END, member(role), call_id, CallEndReason.RTC_FAILED)
+
+    def consent():
+        return _consent(pair_id).view()
+
+    def final(role: Role, turn_id: str, seq: int, text: str, ended_at: float, rev: int) -> None:
+        fin = finalizers.get(call_id)
+        if fin is None:
+            return  # 아직 양쪽이 다 안 들어왔다(ACTIVE 전) → 버린다
+        req = FinalizeRequest(call_id, turn_id, seq, role, Finality.FINAL, text, ended_at, rev)
+        result = fin.finalize(req, consent(), trace_id=call.trace_id, source=Source.LIVE)
+        log.info("[%s] N-06 %s", role.value, result.outcome or result.diagnostics.terminal_error.code)
+        if result.outcome == "final_committed":
+            _publish(speech_final_event(pair_id, call_id, result.data, STT), call.trace_id)
+
+    return worker.CallHooks(joined, left, consent, final)
+
+
+def _start_worker(call) -> None:
+    if call is None or call.call_id in workers:
+        return  # 중복 수락은 worker를 또 띄우지 않는다
+    if missing := worker.missing_env():
+        log.warning("STT worker 안 띄움: 환경변수 없음 %s (통화는 음성만)", ",".join(missing))
+        return
+
+    async def run() -> None:
+        try:
+            await worker.run(call.call_id, call.pair_id, _hooks(call.call_id))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # LiveKit 접속 실패 등. 통화 자체는 앱끼리 계속된다
+            log.warning("STT worker 실패 %s: %s", call.call_id, type(e).__name__)
+        finally:
+            workers.pop(call.call_id, None)
+
+    workers[call.call_id] = asyncio.create_task(run())
 
 
 @app.post("/v1/calls")
@@ -219,7 +291,7 @@ async def rtc_token(call_id: str, x_actor_id: str = Header(), x_pair_id: str = H
 
 @app.post("/v1/dev/calls/{call_id}/joined")
 async def dev_joined(call_id: str, x_actor_id: str = Header(), x_pair_id: str = Header()):
-    """LiveKit participant_joined 웹훅 대신."""
+    """worker 없이(키 없이) 테스트할 때 참가를 손으로 알린다. 평소에는 worker가 한다."""
     return _call_op(Operation.JOINED, _actor(x_actor_id, x_pair_id), call_id)
 
 

@@ -12,7 +12,8 @@ from hyojason_session.help_state import Event
 
 from .finalize import FinalUtterance
 
-MANUAL_TEST = "manual_test"  # 텍스트 입력 스텁 source. LIVE STT는 "stt"
+MANUAL_TEST = "manual_test"  # 텍스트 입력 스텁 source
+STT = "stt"  # 실제 음성 인식
 
 
 def call_event(kind: str, pair_id: str, call_id: str, role: Role | None, reason: str | None = None) -> Event:
