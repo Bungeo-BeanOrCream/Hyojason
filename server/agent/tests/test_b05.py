@@ -255,19 +255,68 @@ class B05FixtureTests(TestCase):
             result.data.goal_draft.approved_slots, {"day": "tomorrow", "time": "06:00"}
         )
         self.assertEqual(result.diagnostics.source, "FIXTURE")
-        self.assertNotIn("내일 오전", str(self.calls))
+        # 대화 텍스트는 GOAL 요청에만 들어가고 결과·진단에는 남지 않는다.
+        self.assertIn("내일 오전", str(self.calls))
+        self.assertNotIn("내일 오전", repr(result))
+        self.assertEqual(result.data.goal_belief.probabilities["CLOCK_ALARM"], 0.95)
 
     def test_E07_parent_utterance_and_E11_risk(self):
+        self.selected = "NONE"
         parent = self.evaluate(
             "speech.final", speech=self.speech("디스플레이 눌러", "PARENT")
         )
         blocked = self.evaluate(
             "speech.final", speech=self.speech("공장 초기화 눌러 줘")
         )
+        # 부모 발화는 목표 확률만 갱신한다. 지시·위치 판단은 0회.
         self.assertIsNone(parent.data.instruction_draft)
+        self.assertIsNone(parent.data.goal_draft)
+        self.assertIsNotNone(parent.data.goal_belief)
+        self.assertEqual(self.questions(), ["GOAL"])
         self.assertEqual(blocked.data.warning, RISK_WARNING)
         self.assertTrue(blocked.data.supersedes_previous)
-        self.assertEqual(self.calls, [])
+
+    def questions(self):
+        return [
+            "GOAL" if "NONE" in call["request"]["questions"]["decision"]["criteria"] else "OTHER"
+            for call in self.calls
+        ]
+
+    def utterance(self, turn, text, role):
+        return FinalUtterance(utterance_id=turn, utterance_seq=1, speaker_role=role,
+                              text=text, call_id="call", source="FIXTURE")
+
+    def test_15_8_goal_changes_from_sms_to_mail_mid_conversation(self):
+        sms = Goal(goal_id="SMS_SEND", goal_revision=1, source_utterance_id="earlier",
+                   approved_slots={"recipient_id": "demo-recipient", "message_id": "demo-sms"})
+        self.update(goal=sms, basis=replace(self.basis, goal_revision=1))
+        earlier = self.utterance("earlier", "문자 보내는 거 좀 알려줘", "PARENT")
+        speech = self.utterance("turn2", "아니 문자 말고 그 메일 말이야", "PARENT")
+        self.selected = "MAIL_OPEN"
+        result = self.evaluate("speech.final", speech=speech, recent_utterances=(earlier,))
+        self.assertEqual(result.outcome, "goal_captured")
+        self.assertEqual(result.data.goal_draft.goal_id, "MAIL_OPEN")
+        self.assertEqual(result.data.goal_draft.approved_slots, {"mail_id": "demo-mail"})
+        self.assertIsNone(result.data.instruction_draft)
+        state = self.calls[0]["request"]["state"]
+        self.assertEqual([turn["text"] for turn in state["conversation"]],
+                         ["문자 보내는 거 좀 알려줘", "아니 문자 말고 그 메일 말이야"])
+        self.assertEqual(state["current_goal"], "SMS_SEND")
+
+    def test_15_9_none_or_low_confidence_keeps_current_goal(self):
+        self.update(goal=self.goal, basis=replace(self.basis, goal_revision=1))
+        self.selected = "NONE"
+        none = self.evaluate("speech.final", speech=self.speech("오늘 날씨 좋네"))
+        self.assertIsNone(none.data.goal_draft)
+        self.assertEqual(none.data.goal_belief.probabilities["NONE"], 0.95)
+        self.selected, self.score = "SET_FONT", 0.6
+        low = self.evaluate("speech.final", speech=self.speech("글씨가 좀 작나"))
+        self.assertIsNone(low.data.goal_draft)
+        self.selected, self.score = "CLOCK_ALARM", 0.95
+        same = self.evaluate("speech.final", speech=self.speech("내일 오전 6시 알람 맞지?"))
+        self.assertIsNone(same.data.goal_draft)
+        missing = self.evaluate("speech.final", speech=self.speech("알람 하나 맞춰 줘"))
+        self.assertIsNone(missing.data.goal_draft)
 
     def test_B05_3_complete_and_partial_empty_skip_model(self):
         self.update(screen=replace(self.display, target_ids=()))
@@ -439,3 +488,57 @@ class B05FixtureTests(TestCase):
             result.diagnostics.terminal_error.code, "INVALID_MODEL_RESPONSE"
         )
         self.assertEqual(result.diagnostics.source, "FIXTURE")
+
+
+class GoalSlotContractTests(TestCase):
+    """모델이 고른 목표의 슬롯이 D 시연 자산 형식(demo/fixtures/goals.json)과 맞는지 (#3, V-05)."""
+
+    def test_goals_fixture_slots_match_d_catalog(self):
+        import json
+        from pathlib import Path
+
+        from server.agent.interpret_child_turn import goal_slots
+
+        fixture = Path(__file__).resolve().parents[3] / "demo" / "fixtures" / "goals.json"
+        samples = json.loads(fixture.read_text(encoding="utf-8"))
+        checked = 0
+        for sample in samples:
+            if sample["goal_id"] is None:
+                continue
+            with self.subTest(sample["id"]):
+                self.assertEqual(goal_slots(sample["goal_id"], [sample["text"]]), sample["approved_slots"])
+                checked += 1
+        self.assertEqual(checked, 13)
+
+    def test_22_korean_and_digit_clock_forms(self):
+        from server.agent.interpret_child_turn import goal_slots
+
+        cases = {
+            "내일 저녁 여섯 시에 알람": "18:00",
+            "내일 오전 6시로 맞춰줘": "06:00",
+            "내일 아침 일곱 시 반 알람": "07:30",
+            "오늘 오후 세 시 삼십오 분 알람": "15:35",
+            "오늘 밤 열한 시 알람": "23:00",
+            "내일 21시 알람": "21:00",
+        }
+        for text, time in cases.items():
+            with self.subTest(text):
+                self.assertEqual(goal_slots("CLOCK_ALARM", [text])["time"], time)
+        # 오전·오후 없는 한글 수사나 12시 이하 숫자는 시각이 모호해 슬롯을 채우지 않는다.
+        self.assertIsNone(goal_slots("CLOCK_ALARM", ["내일 여섯 시 알람"]))
+        self.assertIsNone(goal_slots("CLOCK_ALARM", ["내일 6시 알람"]))
+
+    def test_3_arrival_evidence_uses_d_asset_ids(self):
+        from server.agent.profiles import required_arrival_evidence
+
+        def goal(goal_id, slots):
+            return Goal(goal_id=goal_id, goal_revision=1, source_utterance_id="turn", approved_slots=slots)
+
+        self.assertEqual(required_arrival_evidence(goal("MAP_ROUTE", {"place": "demo-seoul-station"})),
+                         ("route_shown", "route_destination:demo-seoul-station"))
+        self.assertEqual(
+            required_arrival_evidence(goal("SMS_SEND", {"recipient_id": "demo-recipient", "message_id": "demo-sms"})),
+            ("sms_sent_status", "sms_sent:demo-recipient:demo-sms"))
+        self.assertEqual(required_arrival_evidence(goal("MAIL_OPEN", {"mail_id": "demo-mail"})), ("mail_detail_open",))
+        self.assertEqual(required_arrival_evidence(goal("SET_FONT", {})), ("font_scale_changed",))
+        self.assertEqual(required_arrival_evidence(goal("MAP_ROUTE", {"place": "demo_place"})), ())

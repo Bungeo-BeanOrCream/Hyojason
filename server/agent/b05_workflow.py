@@ -13,6 +13,7 @@ from ..contracts import (
     CandidateSet,
     FinalUtterance,
     Goal,
+    GoalBelief,
     GoalDraft,
     GuideProposal,
     Instruction,
@@ -72,6 +73,7 @@ class AgentSnapshot:
     instruction: Instruction | None
     goal: Goal | None
     trail: NavigationTrail
+    goal_belief: GoalBelief | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -79,6 +81,10 @@ class B05Input:
     event: AgentEvent
     snapshot: AgentSnapshot
     speech: FinalUtterance | None = None
+    # 현재 도움의 최근 확정 발화 창(두 역할). 목표 확률 판단에만 쓰고 저장하지 않는다.
+    recent_utterances: tuple[FinalUtterance, ...] = ()
+    # 이번 도움의 지원 대상 가족 역할. 모델 입력의 화자 이름을 실제 역할로 붙일 때 쓴다.
+    assisted_role: Literal["PARENT", "CHILD"] = "PARENT"
     before: ScreenState | None = None
     target: TargetDecision | None = None
     policy_revision: int = POLICY_REVISION
@@ -88,6 +94,7 @@ class B05Input:
 @dataclass(frozen=True, kw_only=True)
 class B05Output:
     instruction_draft: InstructionDraft | None = None
+    goal_belief: GoalBelief | None = None
     goal_draft: GoalDraft | None = None
     target: TargetDecision | None = None
     verdict: ActionVerdict | None = None
@@ -158,7 +165,8 @@ class B05Workflow:
         snapshot, speech = request.snapshot, request.speech
         if speech is None:
             return run.fail("INVALID_INPUT", "speech")
-        if snapshot.mode != "CALL_CHILD_LED" or speech.speaker_role.lower() != "child":
+        # 목표 확률은 두 역할의 발화로 갱신한다. 지시 해석은 N-15가 자녀 발화에만 한다.
+        if snapshot.mode != "CALL_CHILD_LED":
             return self._wait(run, "N-15", "NOT_APPLICABLE")
 
         def publish_draft(draft: InstructionDraft) -> None:
@@ -170,6 +178,9 @@ class B05Workflow:
                 mode=snapshot.mode,
                 speech=speech,
                 existing_goal=snapshot.goal,
+                goal_belief=snapshot.goal_belief,
+                recent_utterances=request.recent_utterances,
+                assisted_role=request.assisted_role,
                 goal_catalog_revision=request.policy_revision,
                 basis=snapshot.basis,
                 execution=run.for_child(),
@@ -182,6 +193,7 @@ class B05Workflow:
         value = result.data
         output = B05Output(
             instruction_draft=value.instruction_draft,
+            goal_belief=value.goal_belief,
             goal_draft=value.goal_draft,
             warning=RISK_WARNING if result.outcome == "policy_denied" else None,
             supersedes_previous=value.supersedes_previous,

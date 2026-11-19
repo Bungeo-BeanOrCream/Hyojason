@@ -53,6 +53,15 @@ class Goal:
 
 
 @dataclass(frozen=True)
+class GoalBelief:
+    """B-05(Zoro-1 GOAL)가 낸 최신 목표 확률. 지원 목표 전체와 NONE. 원문은 담지 않는다."""
+    probabilities: Mapping
+    source_utterance_id: str
+    utterance_seq: int
+    model_revision: str
+
+
+@dataclass(frozen=True)
 class ScreenState:
     projection_epoch: str
     screen_revision: int
@@ -76,6 +85,8 @@ class HelpSnapshot:
     goal_revision: int = 0
     instruction: Instruction | None = None
     goal: Goal | None = None
+    # 목표 확률은 내부 보관만 한다. N-21 투영(to_shared_snapshot)에 넣지 않는다.
+    goal_belief: GoalBelief | None = None
     screen: ScreenState | None = None
     projection_epoch: str | None = None
     screen_revision: int | None = None
@@ -161,6 +172,13 @@ class _State:
     # 지시를 말하는 쪽(지원 대상의 상대)의 최신 확정 발화
     latest_turn_id: str | None = None
     latest_turn_seq: int | None = None
+    # 두 역할을 통틀어 마지막으로 적용한 확정 발화. 목표 확률·목표 초안은 이 발화에만 받는다.
+    # utterance_seq는 역할마다 따로 증가하므로 역할을 넘어 비교하지 않는다.
+    latest_goal_turn_id: str | None = None
+    latest_assisted_seq: int | None = None
+    goal_drafted_turn: str | None = None
+    # 목표 추정용 최근 확정 발화 창 (utterance_id, utterance_seq, speaker_role, text). 메모리에만 둔다.
+    recent_turns: tuple = ()
     draft_kinds: frozenset[str] = frozenset()
     previous_screen_revision: int | None = None
     last_screen_meaning: tuple[str, frozenset[str]] | None = None
@@ -208,7 +226,7 @@ _PUBLISHERS = {
     "call.connected": ("SERVER",), "call.reconnecting": ("SERVER",), "call.ended": ("SERVER",),
     "consent.updated": ("PARENT", "CHILD"), "projection.started": ("PARENT", "CHILD"),
     "screen.observed": ("PARENT", "CHILD"), "speech.final": ("SERVER",),
-    "instruction.drafted": ("SERVER",), "goal.drafted": ("SERVER",),
+    "instruction.drafted": ("SERVER",), "goal.drafted": ("SERVER",), "goal.belief": ("SERVER",),
     "target.located": ("SERVER",), "action.assessed": ("SERVER",),
     "arrival.suspected": ("SERVER",), "arrival.revoked": ("SERVER",),
     # 자녀 완료·부모 중단은 N-22가 승인한 뒤 서버가 help.end로 넣는다 (계약 흐름 N-22 → N-11 → N-23)
@@ -220,6 +238,10 @@ _PUBLISHERS = {
 _ROLES = frozenset({"PARENT", "CHILD"})
 # 지원 대상 기기만 보낼 수 있는 관찰·표시 이벤트
 _ASSISTED_EVENTS = frozenset({"projection.started", "screen.observed", "guide.shown", "guide.suppressed"})
+
+
+RECENT_TURN_LIMIT = 10
+_NO_GOAL = "NONE"
 
 
 def _other(role: str) -> str:
@@ -261,6 +283,13 @@ class HelpSession:
     def snapshot(self) -> HelpSnapshot:
         with self._lock:
             return self._state.snapshot
+
+    @property
+    def recent_utterances(self) -> tuple[dict, ...]:
+        """현재 도움의 최근 확정 발화 창(두 역할). B-05의 목표 확률 판단 입력으로만 쓴다."""
+        with self._lock:
+            return tuple({"utterance_id": turn, "utterance_seq": seq, "speaker_role": role, "text": text}
+                         for turn, seq, role, text in self._state.recent_turns)
 
     def reduce_help_state(self, event: Event, actor: Actor, run: Run, *, before_commit=None) -> NodeResult[Reduction]:
         """Apply an event once. An optional server hook can veto the candidate before publication."""
@@ -362,6 +391,8 @@ class HelpSession:
             state.snapshot = HelpSnapshot(s.pair_id, s.call_id, uuid4().hex, call_state=s.call_state,
                                           consent_revision=s.consent_revision, assisted_role=assisted)
             state.latest_turn_id = state.latest_turn_seq = None
+            state.latest_goal_turn_id = state.goal_drafted_turn = None
+            state.recent_turns = ()
             state.draft_kinds = frozenset()
             state.previous_screen_revision = None
             state.last_screen_meaning = None
@@ -379,6 +410,7 @@ class HelpSession:
             _require(speaker in _ROLES and p.get("call_id", s.call_id) == s.call_id)
             turn, seq = _id(p["utterance_id"]), _uint(p["utterance_seq"])
             if speaker == _other(s.assisted_role):
+                # 지시하는 쪽 발화: 지시 해석과 목표 확률 판단을 모두 연다.
                 if turn == state.latest_turn_id and seq == state.latest_turn_seq:
                     return "duplicate_ignored"
                 _require(state.latest_turn_seq is None or seq > state.latest_turn_seq, "STALE_BASIS")
@@ -386,9 +418,22 @@ class HelpSession:
                 state.draft_kinds = frozenset()
                 state.update(utterance_seq=seq)
                 effects.append(("turn.interpret", "SERVER"))
+            else:
+                # 지원 대상 발화: 지시·타이머는 만들지 않고 목표 확률 판단만 연다.
+                if turn == state.latest_goal_turn_id:
+                    return "duplicate_ignored"
+                _require(state.latest_assisted_seq is None or seq > state.latest_assisted_seq, "STALE_BASIS")
+                state.latest_assisted_seq = seq
+                effects.append(("goal.interpret", "SERVER"))
+            state.latest_goal_turn_id = turn
+            text = p.get("text")
+            if isinstance(text, str) and text.strip():
+                state.recent_turns = (*state.recent_turns, (turn, seq, speaker, text))[-RECENT_TURN_LIMIT:]
             return "state_applied"
         if kind in ("instruction.drafted", "goal.drafted"):
             return self._draft(state, kind, p, basis, effects)
+        if kind == "goal.belief":
+            return self._belief(state, p, basis)
 
         _require(s.help_state != "ENDED", "ALREADY_ENDED")
         if kind == "projection.started":
@@ -455,6 +500,9 @@ class HelpSession:
                 return "state_applied"
             state.previous_screen_revision = None
             state.latest_turn_id = None
+            # 통화가 끝나면 목표 확률은 굳히고, 발화 창은 더 쓰지 않으므로 비운다.
+            state.latest_goal_turn_id = state.goal_drafted_turn = None
+            state.recent_turns = ()
             state.draft_kinds = frozenset()
             state.update(mode="POST_CALL_AGENT", mode_revision=s.mode_revision + 1,
                          help_state="ACTIVE", instruction=None, screen=None, observation_health="GAP")
@@ -491,13 +539,15 @@ class HelpSession:
     def _end(state, effects, reason):
         s = state.snapshot
         state.latest_turn_id = None
+        state.latest_goal_turn_id = state.goal_drafted_turn = None
+        state.recent_turns = ()
         state.draft_kinds = frozenset()
         state.previous_screen_revision = None
         state.last_screen_meaning = None
         state.arrival_id = None
         state.used_epochs = frozenset()
         state.update(help_state="ENDED", end_reason=s.end_reason or reason,
-                     goal=None, instruction=None, screen=None, utterance_seq=None,
+                     goal=None, goal_belief=None, instruction=None, screen=None, utterance_seq=None,
                      projection_epoch=None, screen_revision=None, observation_health="STOPPED", trail_cursor=0)
         if s.help_state != "ENDED":
             # help.ended는 N-23이 남은 범위를 정리한 뒤 양쪽에 보낸다.
@@ -509,12 +559,19 @@ class HelpSession:
         self._active_call(s)
         if state.call_fence:
             _require(basis.event_seq is not None and basis.event_seq >= state.call_fence, "STALE_BASIS")
-        _basis(s, basis, "utterance_seq")
         _require(s.help_state != "ENDED", "NOT_APPLICABLE")  # 새 도움은 help.link_approved로만 연다
         turn = _id(p["source_utterance_id"])
-        _require(turn == state.latest_turn_id, "STALE_BASIS")
-        if kind in state.draft_kinds:
-            return "duplicate_ignored"
+        if kind == "instruction.drafted":
+            # 지시는 지시하는 쪽의 최신 발화에만 받는다.
+            _basis(s, basis, "utterance_seq")
+            _require(turn == state.latest_turn_id, "STALE_BASIS")
+            if kind in state.draft_kinds:
+                return "duplicate_ignored"
+        else:
+            # 목표는 두 역할을 통틀어 최신 확정 발화의 판단만 받는다.
+            _require(turn == state.latest_goal_turn_id, "STALE_BASIS")
+            if turn == state.goal_drafted_turn:
+                return "duplicate_ignored"
         if kind == "instruction.drafted":
             action, target = p["action"], p["target_key"]
             _require(p["supersedes_previous"] is True and action in ("TAP", "BACK", "SCROLL_DOWN"))
@@ -540,10 +597,33 @@ class HelpSession:
                 goal = Goal(goal_id, revision, MappingProxyType(dict(slots)), turn)
                 state.update(goal=goal, goal_revision=revision, help_state="ACTIVE")
                 effects.append(("goal.updated", s.assisted_role))
+            state.goal_drafted_turn = turn
         state.draft_kinds |= {kind}
         if not state.audio_evaluated:
             state.audio_evaluated = True
             effects.append(("audio.evaluate", s.assisted_role))
+        return "state_applied"
+
+    def _belief(self, state, p, basis):
+        """목표 확률을 대체 저장한다. revision과 앱 효과는 없다 (docs/small-nodes/N-11.md)."""
+        s = state.snapshot
+        self._active_call(s)
+        if state.call_fence:
+            _require(basis.event_seq is not None and basis.event_seq >= state.call_fence, "STALE_BASIS")
+        _require(s.help_state != "ENDED", "NOT_APPLICABLE")
+        turn = _id(p["source_utterance_id"])
+        _require(turn == state.latest_goal_turn_id, "STALE_BASIS")
+        probabilities = p["probabilities"]
+        _require(type(probabilities) is dict and probabilities
+                 and set(probabilities) <= _GOALS | {_NO_GOAL})
+        _require(all(type(v) in (int, float) and 0 <= v <= 1 for v in probabilities.values()))
+        revision = p["model_revision"]
+        _require(isinstance(revision, str) and revision)
+        belief = GoalBelief(MappingProxyType({k: float(v) for k, v in probabilities.items()}),
+                            turn, _uint(p["utterance_seq"]), revision)
+        if belief == s.goal_belief:
+            return "duplicate_ignored"
+        state.update(goal_belief=belief)
         return "state_applied"
 
     def _observe(self, state, p, basis, effects):

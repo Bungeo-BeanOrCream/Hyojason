@@ -187,7 +187,7 @@ def required_arrival_evidence(goal: Goal) -> tuple[str, ...]:
     slots = goal.approved_slots
     match goal.goal_id:
         case "SET_FONT":
-            return ("font_scale_changed",) if slots.get("delta", 1) in (1, "1") else ()
+            return ("font_scale_changed",) if slots.get("steps", 1) in (1, "1") else ()
         case "SET_TIMEOUT":
             return (
                 ("timeout_10m_selected",)
@@ -199,20 +199,24 @@ def required_arrival_evidence(goal: Goal) -> tuple[str, ...]:
             if token:
                 return ("alarm_card_active", f"alarm_next:{token}")
             return ()
+        # 슬롯은 D의 시연 자산 형식(demo/fixtures/goals.json). 도착 근거는 #3 제안대로
+        # 상태 코드와 같은 화면의 값 코드(D 자산 ID)를 함께 요구해 다른 목적지·수신자의 조기 도착을 막는다.
+        # 값 코드는 A가 닫힌 집합으로 보내기로 합의되면 D 카탈로그에 등록된다.
         case "MAP_ROUTE":
-            if slots.get("destination_id") == "demo_place":
-                return ("route_shown", "route_destination:demo_place")
-            return ()
+            place = slots.get("place")
+            return ("route_shown", f"route_destination:{place}") if _is_asset(place) else ()
         case "SMS_SEND":
-            if (
-                slots.get("recipient_id") == "demo_recipient"
-                and slots.get("message_id") == "demo_message"
-            ):
-                return ("sms_sent_status", "sms_sent:demo_recipient:demo_message")
+            recipient, message = slots.get("recipient_id"), slots.get("message_id")
+            if _is_asset(recipient) and _is_asset(message):
+                return ("sms_sent_status", f"sms_sent:{recipient}:{message}")
             return ()
         case "MAIL_OPEN":
-            return ("mail_detail_open",) if slots.get("mail_id") == "demo_mail" else ()
+            return ("mail_detail_open",) if _is_asset(slots.get("mail_id")) else ()
     return ()
+
+
+def _is_asset(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"demo-[a-z0-9-]{1,60}", value) is not None
 
 
 def alarm_token(slots: dict[str, JsonValue]) -> str | None:

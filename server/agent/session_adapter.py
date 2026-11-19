@@ -10,6 +10,7 @@ from ..contracts import (
     Action,
     Basis,
     Goal,
+    GoalBelief,
     GoalId,
     Instruction,
     InstructionTrace,
@@ -119,6 +120,18 @@ def from_session(
             source_utterance_id=goal_fields["source_utterance_id"],
             goal_revision=goal_fields["goal_revision"],
         )
+    goal_belief = None
+    if state.get("goal_belief") is not None:
+        belief_fields = _field_map(state["goal_belief"])
+        goal_belief = GoalBelief(
+            probabilities={
+                str(key): float(value)
+                for key, value in dict(belief_fields["probabilities"]).items()
+            },
+            source_utterance_id=belief_fields["source_utterance_id"],
+            utterance_seq=belief_fields["utterance_seq"],
+            model_revision=belief_fields["model_revision"],
+        )
     instruction = None
     if state["instruction"] is not None:
         instruction_fields = _field_map(state["instruction"])
@@ -150,6 +163,7 @@ def from_session(
         processing_allowed=processing_allowed and handoff_ready,
         instruction=instruction,
         goal=goal,
+        goal_belief=goal_belief,
         screen=_screen(current_screen) if current_screen is not None else None,
         trail=_saved_trail(trail),
     )

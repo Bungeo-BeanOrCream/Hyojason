@@ -129,6 +129,16 @@ class GoalDraft:
 
 
 @dataclass(frozen=True, kw_only=True)
+class GoalBelief:
+    """Zoro-1 GOAL의 최신 확률 분포. 지원 목표 전체와 NONE을 담고 발화 원문은 담지 않는다."""
+
+    probabilities: dict[str, float]
+    source_utterance_id: str
+    utterance_seq: int
+    model_revision: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class Goal:
     goal_id: GoalId
     goal_revision: int
