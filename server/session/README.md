@@ -21,12 +21,12 @@ Python 3.11 이상. 런타임 외부 의존성은 없다.
 | `hyojason_session/common/` | 공통 계약: NodeResult·Diagnostic·Basis, 상태 자료형, 열거형, JSON 변환·스키마 생성 |
 | `hyojason_session/help_state.py` | **N-11** 통화·도움·동의·화면 상태와 권위 버전 |
 | `hyojason_session/navigation.py` | **N-12** 관찰 전이, 공백, 지시·위치·수행 이력 |
-| `hyojason_session/control.py` | 통화별 쓰기 경로와 N-13의 `HelpStateReader` 구현 |
+| `hyojason_session/control.py` | 통화별 쓰기 경로와 N-13의 `HelpStateReader` 구현. `submit_command`(완료·중단)·`submit_arrival`(도착)이 N-22 → N-11 → N-23 순서로 처리 |
 | `hyojason_session/role_view.py` | **N-21** project_role_view |
 | `hyojason_session/reconnect.py` | **N-13** reconcile_reconnect |
 | `hyojason_session/completion.py` | **N-22** resolve_arrival_or_completion + 도착·종료 장부(CompletionLedger) |
 | `hyojason_session/purge.py` | **N-23** purge_help_and_restart + 종료 기록(TombstoneRegistry) |
-| `hyojason_session/session_state.py` | N-11 저장소·N-22 장부·N-23 기록을 묶은 읽기 어댑터 (N-13 입력) |
+| `hyojason_session/session_state.py` | N-11 없이 N-22·N-23을 시험하는 격리용 읽기 어댑터 |
 | `hyojason_session/demo_fixtures.py` | **N-24** AVD·앱·시나리오 준비 점검 |
 | `hyojason_session/demo_evaluation.py` | **N-25** V-01~V-07 판정과 V-08 모델·비용 확인 |
 | `hyojason_session/demo_verify.py` | N-24·N-25 JSON 실행 도구 ([예시와 리허설 절차](../../demo/fixtures/README.md)) |
