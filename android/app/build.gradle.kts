@@ -29,4 +29,6 @@ dependencies {
     implementation(project(":overlay"))
     implementation(project(":rtc"))
     implementation(project(":child"))
+    debugImplementation("com.google.code.gson:gson:2.11.0")
+    testImplementation("junit:junit:4.13.2")
 }
