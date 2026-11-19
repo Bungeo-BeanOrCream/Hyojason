@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "N-23 PurgeData",
+  "description": "N-23 purge_help_and_restart의 NodeResult.data.",
+  "type": "object",
+  "properties": {
+    "end_event_id": {
+      "type": "string"
+    },
+    "end_reason": {
+      "$ref": "#/$defs/EndReason"
+    },
+    "cleared_scopes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CleanupScope"
+      }
+    },
+    "resume_requires_consent": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "end_event_id",
+    "end_reason",
+    "cleared_scopes",
+    "resume_requires_consent"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "CleanupScope": {
+      "type": "string",
+      "enum": [
+        "HELP_STATE",
+        "NAVIGATION_TRAIL",
+        "INFERENCE_RESULTS",
+        "PENDING_UTTERANCES",
+        "ARRIVAL_NOTICE",
+        "PARENT_DEVICE",
+        "CHILD_DEVICE"
+      ]
+    },
+    "EndReason": {
+      "type": "string",
+      "enum": [
+        "CHILD_COMPLETED",
+        "PARENT_STOPPED",
+        "PARENT_COMPLETED",
+        "CHILD_STOPPED",
+        "NO_GOAL_AT_HANGUP",
+        "CONSENT_REVOKED"
+      ]
+    }
+  }
+}

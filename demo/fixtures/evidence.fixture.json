@@ -1,0 +1,28 @@
+{
+  "observed_runs": [
+    {
+      "case_id": "I01",
+      "attempt": 1,
+      "trace_id": "fixture-i01-first",
+      "source": "FIXTURE",
+      "input_source": "FIXTURE",
+      "actual": {"outcome": "instruction_ready", "action": "TAP", "target_key": "settings.display"}
+    },
+    {
+      "case_id": "I02",
+      "attempt": 1,
+      "trace_id": "fixture-i02-first",
+      "source": "FIXTURE",
+      "input_source": "FIXTURE",
+      "actual": {"outcome": "target_unknown", "action": null, "target_key": null}
+    },
+    {
+      "case_id": "I02",
+      "attempt": 2,
+      "trace_id": "fixture-i02-retry",
+      "source": "FIXTURE",
+      "input_source": "FIXTURE",
+      "actual": {"outcome": "instruction_ready", "action": "TAP", "target_key": "settings.display"}
+    }
+  ]
+}

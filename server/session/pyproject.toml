@@ -1,0 +1,15 @@
+[project]
+name = "hyojason-session"
+version = "0.1.0"
+description = "효자손 제어 서버 server/session — 도움 상태·재접속·역할별 투영 (D)"
+requires-python = ">=3.11"
+# 노드 로직(hyojason_session.*)은 표준 라이브러리만 쓴다. 제어 서버(hyojason_session.api)만 server 의존성이 필요하다.
+dependencies = []
+
+[project.optional-dependencies]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

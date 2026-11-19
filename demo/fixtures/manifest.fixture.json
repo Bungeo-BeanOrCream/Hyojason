@@ -1,0 +1,103 @@
+{
+  "fixture_revision": 1,
+  "scenario_ids": ["A", "B", "SET_FONT", "SET_TIMEOUT", "CLOCK_ALARM", "MAP_ROUTE", "SMS_SEND", "MAIL_OPEN"],
+  "device_profiles": [
+    {
+      "device_id": "parent-fixture",
+      "role": "PARENT",
+      "source": "FIXTURE",
+      "android_api": 35,
+      "android_image": "fixture-api35-arm64",
+      "locale": "ko-KR",
+      "time_zone": "Asia/Seoul",
+      "local_date": "2026-11-19",
+      "online": true,
+      "microphone_verified": true,
+      "duplex_audio_verified": true,
+      "audio_route": "SPEAKER",
+      "host_control_reachable": true,
+      "avd_control_reachable": true,
+      "capture_allowed": true,
+      "overlay_allowed": true,
+      "apps": [
+        {
+          "app_id": "hyojason", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": [], "observation_allowed": true, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "settings", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": ["settings_home", "settings_display", "settings_display_size_text", "settings_screen_timeout"],
+          "observation_allowed": true, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "clock", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": ["home", "clock_alarm_list", "clock_alarm_edit"],
+          "observation_allowed": true, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "maps", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": ["maps_home", "maps_search", "maps_place_detail", "maps_directions"],
+          "observation_allowed": true, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "sms", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": ["sms_list", "sms_compose", "sms_conversation"],
+          "observation_allowed": true, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "gmail", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": ["gmail_inbox", "gmail_mail_detail"],
+          "observation_allowed": true, "login_ready": true, "network_ready": true
+        }
+      ]
+    },
+    {
+      "device_id": "child-fixture",
+      "role": "CHILD",
+      "source": "FIXTURE",
+      "android_api": 35,
+      "android_image": "fixture-api35-arm64",
+      "locale": "ko-KR",
+      "time_zone": "Asia/Seoul",
+      "local_date": "2026-11-19",
+      "online": true,
+      "microphone_verified": true,
+      "duplex_audio_verified": true,
+      "audio_route": "BLUETOOTH",
+      "host_control_reachable": true,
+      "avd_control_reachable": true,
+      "capture_allowed": false,
+      "overlay_allowed": false,
+      "apps": [
+        {
+          "app_id": "hyojason", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": [], "observation_allowed": false, "login_ready": true, "network_ready": true
+        },
+        {
+          "app_id": "sms", "version": "fixture-1", "profile_version": "fixture-1",
+          "start_screens": [], "observation_allowed": false, "login_ready": true, "network_ready": true
+        }
+      ]
+    }
+  ],
+  "staged_assets": [
+    {"scenario_id": "A", "kind": "settings_baseline", "asset_id": "fixture.settings_baseline", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "A", "kind": "fast_correct", "asset_id": "fixture.fast_correct", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "A", "kind": "wrong_turn", "asset_id": "fixture.wrong_turn", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "A", "kind": "reverse_edge", "asset_id": "fixture.reverse_edge", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "A", "kind": "below_fold", "asset_id": "fixture.below_fold", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "A", "kind": "visible_target", "asset_id": "fixture.visible_target", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "B", "kind": "opening_instruction", "asset_id": "fixture.opening_instruction", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "B", "kind": "alarm_target", "asset_id": "fixture.alarm_target", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "B", "kind": "post_call_path", "asset_id": "fixture.post_call_path", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "B", "kind": "clock_reference", "asset_id": "fixture.clock_reference", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "SET_FONT", "kind": "settings_baseline", "asset_id": "fixture.settings_baseline", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "SET_TIMEOUT", "kind": "settings_baseline", "asset_id": "fixture.settings_baseline", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "CLOCK_ALARM", "kind": "clock_reference", "asset_id": "fixture.clock_reference", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "MAP_ROUTE", "kind": "public_place", "asset_id": "fixture.public_place", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "SMS_SEND", "kind": "sms_recipient", "asset_id": "fixture.sms_recipient", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "SMS_SEND", "kind": "sms_message", "asset_id": "fixture.sms_message", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "SMS_SEND", "kind": "sms_receiver", "asset_id": "fixture.sms_receiver", "source": "FIXTURE", "ready": true},
+    {"scenario_id": "MAIL_OPEN", "kind": "mail_sample", "asset_id": "fixture.mail_sample", "source": "FIXTURE", "ready": true}
+  ]
+}

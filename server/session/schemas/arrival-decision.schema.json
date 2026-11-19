@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ArrivalDecision",
+  "description": "N-18(C)이 내고 N-22(D)가 검증하는 통화 후 도착 추정. basis에 help·consent·mode·goal·projection_epoch·screen_revision이 모두 있어야 한다.",
+  "type": "object",
+  "properties": {
+    "arrival_id": {
+      "type": "string"
+    },
+    "arrived": {
+      "type": "boolean"
+    },
+    "goal_revision": {
+      "type": "integer"
+    },
+    "evidence_codes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "basis": {
+      "$ref": "#/$defs/Basis"
+    }
+  },
+  "required": [
+    "arrival_id",
+    "arrived",
+    "goal_revision",
+    "evidence_codes",
+    "basis"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "Basis": {
+      "type": "object",
+      "properties": {
+        "pair_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "call_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "help_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "event_seq": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "consent_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "goal_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "mode_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "instruction_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "projection_epoch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "screen_revision": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "utterance_seq": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "pair_id",
+        "call_id",
+        "help_id",
+        "event_seq",
+        "consent_revision",
+        "goal_revision",
+        "mode_revision",
+        "instruction_revision",
+        "projection_epoch",
+        "screen_revision",
+        "utterance_seq"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

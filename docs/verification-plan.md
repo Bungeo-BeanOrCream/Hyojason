@@ -29,7 +29,7 @@
 | E06 | 2800ms에 다른 자녀 지시, 이전 응답이 3000ms에 도착 | N-11 새 instruction_revision, 이전 토큰 폐기 | 이전 t0로 안내 0회, 새 t0로 한 번만 계산 |
 | E07 | 녹음 역할 착오 또는 부모의 “어디지?” | 부모 발화는 모델 트리거·타이머 갱신 없음. 소속 불일치 버림 | 부모 말로 3초 전에 표시 0회 |
 | E08 | 다른 메뉴 진입 직후 캡처 공백 | ActionVerdict UNKNOWN 또는 WRONG + 검증 역경로 없음 | 잘못 눌렀다고 단정하지 않고 BACK 0회 |
-| E09 | SCROLL_DOWN을 띄운 뒤 현재 지시 대상이 보이게 됨 | 같은 지시로 새 screen_revision과 위치 사용 | 예약 시각 변경 없음. 새 지시나 모델 NEXT_ACTION 호출 0회 |
+| E09 | SCROLL_DOWN을 띄운 뒤 현재 지시 대상이 보이게 됨 | 같은 지시와 screen_revision에서 부모가 새 layout_revision으로 위치 재확인 | 예약 시각 변경 없음. 새 지시나 모델 NEXT_ACTION 호출 0회 |
 | E10 | 통화 종료 직전 미해결 위치 결과를 지연 | N-11 POST_CALL_AGENT, 이전 mode_revision 결과 폐기 | 기존 3초·기한을 승계하지 않음 |
 | E11 | 문자 삭제·공장초기화 또는 보호 화면 | policy_denied 또는 protected | 강조 0회. 안전한 화면에서 정확한 보호 문구만 가능 |
 | E12 | 첫 지시 수신과 음성 목표가 같은 발화, 오디오 출력에 Bluetooth 존재 | N-03 1회 평가 및 기존 경로 유지 | 기기 출력 임의 전환 0회 |

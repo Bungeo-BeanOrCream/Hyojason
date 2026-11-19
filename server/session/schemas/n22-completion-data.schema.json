@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "N-22 CompletionData",
+  "description": "N-22 resolve_arrival_or_completion의 NodeResult.data.",
+  "type": "object",
+  "properties": {
+    "announcement": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArrivalState"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "arrival_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "end_requested": {
+      "type": "boolean"
+    },
+    "end_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EndReason"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "announcement",
+    "arrival_id",
+    "end_requested",
+    "end_reason"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "ArrivalState": {
+      "type": "string",
+      "enum": [
+        "NONE",
+        "SUSPECTED",
+        "REVOKED"
+      ]
+    },
+    "EndReason": {
+      "type": "string",
+      "enum": [
+        "CHILD_COMPLETED",
+        "PARENT_STOPPED",
+        "PARENT_COMPLETED",
+        "CHILD_STOPPED",
+        "NO_GOAL_AT_HANGUP",
+        "CONSENT_REVOKED"
+      ]
+    }
+  }
+}
