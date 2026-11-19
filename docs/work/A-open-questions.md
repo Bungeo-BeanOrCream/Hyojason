@@ -42,11 +42,11 @@
 
 ## 진행 상태
 
-- 현재 상태: 로컬 `A-gradle-skeleton`의 `e8f2d1a`에서 골격 후보 빌드와 계약 테스트 5개를 확인했다. 기능 작업용 `A`는 실제 N-07 연결이 있는 debug 앱을 포함하며, 앱·라이브러리 빌드와 JVM 테스트 43개를 확인했다. 두 체크아웃의 APK 경로는 각각 `android/app/build/outputs/apk/debug/app-debug.apk`다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 현재 상태: 골격 후보 `e8f2d1a`의 API 35 빌드와 계약 테스트 5개를 확인하고, 사용자 승인 후 `origin/A-gradle-skeleton`에 푸시했다. 원격 HEAD가 로컬과 일치한다. 기능 작업용 `A`는 실제 N-07 연결이 있는 debug 앱을 포함하며, 앱·라이브러리 빌드와 JVM 테스트 43개를 확인했다. 두 체크아웃의 APK 경로는 각각 `android/app/build/outputs/apk/debug/app-debug.apk`다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.11.1, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 사용자 확인을 받은 뒤 `A-gradle-skeleton`만 원격에 푸시한다. 이후 `main` 대상 골격 PR 생성은 별도로 확인받는다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
+- 다음 할 일: 사용자 확인 후 `A-gradle-skeleton`에서 `main`으로 이슈 #1·#2 골격 PR을 연다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리.
-- 막힌 것: `A-gradle-skeleton` 푸시 승인 대기. N-07의 Android 15 동작 확인 대기.
+- 막힌 것: 골격 PR 생성 승인 대기. N-07의 Android 15 동작 확인 대기.
 
 ## AGENTS.md 테스트 실행 명령 제안
 
