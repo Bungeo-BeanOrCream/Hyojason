@@ -21,17 +21,25 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
+data class AudioControls(
+    val connected: Boolean = false,
+    val speakerAvailable: Boolean = false,
+    val speaker: Boolean = false,
+    val muted: Boolean = false,
+)
+
 /**
  * 통화 중 LiveKit 방을 들고 있는 마이크 foreground service.
  * 앱이 Settings 등으로 나가도 마이크와 방 연결이 유지되게 하는 것이 목적이다(N-03).
- * 일반 전화처럼 마이크는 항상 켜 두고 음소거는 두지 않는다. 출력은 [CALL_OUTPUTS]로 시작하고,
- * 첫 자녀 지시 때 [onFirstChildInstruction]으로 한 번만 스피커 전환을 평가한다.
+ * 출력은 [CALL_OUTPUTS]로 시작한다. 사용자가 출력을 고르지 않았으면
+ * 첫 지시 때 [onFirstChildInstruction]으로 한 번만 스피커 전환을 평가한다.
  * Android 14+는 마이크 FGS를 앱이 보이는 동안 시작해야 하므로 Activity에서 [start]를 부른다.
  */
 class CallService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var room: Room? = null
     private var speakerEvaluated = false  // 서비스 하나 = 통화 하나. 통화당 1회
+    private var mediaReady = false
     private var endReason: String? = null  // 끊김·연결 실패 문구를 서비스 종료 뒤에도 남긴다
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -72,6 +80,7 @@ class CallService : Service() {
                 publish("연결 중")
                 r.connect(url, token)
                 r.localParticipant.setMicrophoneEnabled(true)
+                mediaReady = true
                 publish(null)
             } catch (e: Exception) {
                 endReason = "연결 실패: ${e.javaClass.simpleName}"
@@ -90,9 +99,38 @@ class CallService : Service() {
         publish(null)
     }
 
+    private fun changeSpeaker() {
+        val handler = room?.audioSwitchHandler ?: return
+        val current = handler.selectedAudioDevice
+        val next = if (current is AudioDevice.Speakerphone) {
+            handler.availableAudioDevices.firstOrNull { it !is AudioDevice.Speakerphone }
+        } else {
+            handler.availableAudioDevices.firstOrNull { it is AudioDevice.Speakerphone }
+        } ?: return
+        speakerEvaluated = true
+        handler.selectDevice(next)
+        publish(null)
+    }
+
+    private fun changeMute() {
+        val participant = room?.localParticipant ?: return
+        scope.launch {
+            participant.setMicrophoneEnabled(!participant.isMicrophoneEnabled)
+            publish(null)
+        }
+    }
+
     /** 상태 한 줄. 참가자 identity와 말하는 사람, 출력 장치만 보여 준다. */
     private fun publish(override: String?) {
         val r = room
+        val devices = r?.audioSwitchHandler?.availableAudioDevices.orEmpty()
+        _controls.value = AudioControls(
+            connected = mediaReady && override == null,
+            speakerAvailable = mediaReady && override == null && devices.any { it is AudioDevice.Speakerphone } &&
+                devices.any { it !is AudioDevice.Speakerphone },
+            speaker = r?.audioSwitchHandler?.selectedAudioDevice is AudioDevice.Speakerphone,
+            muted = r?.localParticipant?.isMicrophoneEnabled == false,
+        )
         _status.value = override ?: if (r == null) "대기" else buildString {
             append("나: ${r.localParticipant.identity?.value} (마이크 ${if (r.localParticipant.isMicrophoneEnabled) "켜짐" else "꺼짐"})\n")
             append("상대: ${r.remoteParticipants.keys.joinToString { it.value }.ifEmpty { "없음" }}\n")
@@ -113,6 +151,7 @@ class CallService : Service() {
         room = null
         scope.cancel()
         _status.value = endReason ?: "대기"
+        _controls.value = AudioControls()
         super.onDestroy()
     }
 
@@ -138,6 +177,12 @@ class CallService : Service() {
 
         private val _status = MutableStateFlow("대기")
         val status: StateFlow<String> = _status
+        private val _controls = MutableStateFlow(AudioControls())
+        val controls: StateFlow<AudioControls> = _controls
+
+        fun toggleSpeaker() { instance?.changeSpeaker() }
+
+        fun toggleMute() { instance?.changeMute() }
 
         /** RECORD_AUDIO 권한을 받은 뒤, 앱이 화면에 보일 때 부른다. */
         fun start(context: Context, url: String, token: String) {

@@ -14,6 +14,9 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.hyojason.app.child.Store
+import com.hyojason.app.child.Palette
+import com.hyojason.app.child.body
+import com.hyojason.app.child.card
 import com.hyojason.app.child.secondary
 import com.hyojason.app.contract.Basis
 import com.hyojason.app.contract.Diagnostic
@@ -128,12 +131,19 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private var lastScreenRevision = 0L
     private var awaitingVerdict = false
     private var receivesHelp = false
-    private var arrival = false
+    private var canComplete = false
+    private var goalContext: JSONObject? = null
+    private var completionNotice = false
     private var status: TextView? = null
     private var captureButton: View? = null
     private var complete: View? = null
+    private var stop: View? = null
+    private var contextCard: LinearLayout? = null
+    private var goalLabel: TextView? = null
+    private var goalStatus: TextView? = null
     private var displayed: LocalGuide? = null
     private var renderBasis: Basis? = null
+    private var renderOfferId: String? = null
 
     private val host = AndroidSurfaceHost(activity) { action ->
         if (action == SurfaceUserEvent.DISMISS_GUIDE) {
@@ -173,14 +183,29 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         status = null
         captureButton = null
         complete = null
+        stop = null
+        contextCard = null
+        goalLabel = null
+        goalStatus = null
         if (!paired) {
             resetChannel()
             return
         }
         connect()
         if (inCall) {
-            status = TextView(activity).also(root::addView)
+            status = root.body("", 16f, Palette.BLUE)
             captureButton = root.secondary("화면 안내 시작") { scope.launch { requestCapture() } }
+        }
+        contextCard = root.card(Palette.CREAM) {
+            body("현재 목적", 15f, Palette.BLUE)
+            goalLabel = body("", 19f, Palette.INK)
+            body("현재 상태", 15f, Palette.BLUE)
+            goalStatus = body("", 17f, Palette.INK)
+        }
+        stop = root.secondary("안내 끄기") {
+            send("help.stop")
+            stopCapture()
+            updateButtons()
         }
         complete = root.secondary("도움 완료") { send("help.complete") }
         updateButtons()
@@ -189,9 +214,30 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private fun updateButtons() {
         status?.text = if (frames != null) "화면 안내가 켜졌어요" else if (connected) "화면 안내를 시작할 수 있어요" else "안내 서버 연결 중"
         status?.visibility = if (receivesHelp) View.VISIBLE else View.GONE
-        captureButton?.visibility = if (receivesHelp) View.VISIBLE else View.GONE
-        complete?.visibility = if (arrival) View.VISIBLE else View.GONE
+        captureButton?.visibility = if (receivesHelp && frames == null) View.VISIBLE else View.GONE
+        complete?.visibility = if (canComplete) View.VISIBLE else View.GONE
+        val context = goalContext
+        val afterCall = context?.optString("mode") == "POST_CALL_AGENT"
+        contextCard?.visibility = if (context != null) View.VISIBLE else View.GONE
+        stop?.visibility = if (receivesHelp && (frames != null || afterCall)) View.VISIBLE else View.GONE
+        goalLabel?.text = when (context?.optString("goal_id")) {
+            "SET_FONT" -> "글자 크기 키우기"
+            "SET_TIMEOUT" -> "화면 자동 꺼짐 시간 바꾸기"
+            "CLOCK_ALARM" -> "알람 맞추기"
+            "MAP_ROUTE" -> "길찾기"
+            "SMS_SEND" -> "문자 보내기"
+            "MAIL_OPEN" -> "받은 메일 열기"
+            else -> "목표 확인 중"
+        }
+        goalStatus?.text = when {
+            context?.optBoolean("arrival_suspected") == true -> "목표에 도착한 것 같아요. 확인해 주세요."
+            context?.optBoolean("guide_shown") == true -> "도움받는 화면에 안내를 표시했어요."
+            afterCall -> "통화가 끝났어요. 안내를 이어가는 중이에요."
+            else -> "통화 중 · 진행 중"
+        }
     }
+
+    fun takeCompletionNotice(): Boolean = completionNotice.also { completionNotice = false }
 
     private fun connect() {
         val next = store.token ?: return
@@ -237,7 +283,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         helpId = null
         traceId = null
         receivesHelp = false
-        arrival = false
+        canComplete = false
+        goalContext = null
         instruction = null
         t0 = null
         mode = HelpMode.CALL_CHILD_LED
@@ -257,6 +304,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             mode = HelpMode.CALL_CHILD_LED
             instruction = null
             t0 = null
+            goalContext = null
+            completionNotice = false
         }
         if (incomingHelp != helpId) return
         when (type) {
@@ -269,7 +318,8 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                     setInstruction(view.optJSONObject("instruction")?.longOrNull("instruction_revision"))
                     if (view.optString("help_state") == "ENDED") stopCapture()
                 }
-                arrival = payload.optJSONObject("child_view")?.optBoolean("can_complete") == true
+                canComplete = payload.optJSONObject("child_view")?.optBoolean("can_complete") == true
+                goalContext = payload.optJSONObject("goal_context")
                 updateButtons()
             }
             "instruction.accepted" -> setInstruction(payload.longOrNull("instruction_revision"))
@@ -288,7 +338,16 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                 decisionAt = SystemClock.elapsedRealtime()
                 if (payload.optJSONObject("verdict") != null) awaitingVerdict = false
             }
-            "help.ended", "observation.stop" -> { arrival = false; stopCapture(); updateButtons() }
+            "help.ended", "observation.stop" -> {
+                if (type == "help.ended") {
+                    completionNotice = payload.optString("reason").endsWith("_COMPLETED")
+                    goalContext = null
+                }
+                receivesHelp = false
+                canComplete = false
+                stopCapture()
+                updateButtons()
+            }
         }
     }
 
@@ -422,6 +481,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
 
     private fun render() {
         val value = decision ?: return clearOverlay()
+        val offerId = value.stringOrNull("decision_id") ?: return clearOverlay()
         val basis = value.optJSONObject("basis")?.let(::basisFrom) ?: return clearOverlay()
         val observation = local ?: return clearOverlay()
         if (!connected || basis.help_id != helpId || basis.call_id != callId ||
@@ -448,12 +508,13 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
         val diagnostic = diagnostic("B-06", basis)
         val next = GuideGate.evaluate(input, diagnostic).data?.display
         if (!Settings.canDrawOverlays(activity) || next == null) return clearOverlay()
-        if (displayed == next && renderBasis == basis) return
+        if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
             displayed = next
             renderBasis = basis
-            send("guide.shown", JSONObject().put("mode", mode.name))
+            renderOfferId = offerId
+            send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
         }
     }
 
@@ -493,6 +554,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private fun clearOverlay() {
         if (displayed != null) host.clear()
         displayed = null
+        renderOfferId = null
         renderBasis = null
     }
 

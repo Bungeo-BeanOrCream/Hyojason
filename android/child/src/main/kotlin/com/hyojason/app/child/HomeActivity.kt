@@ -3,10 +3,17 @@ package com.hyojason.app.child
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.graphics.Typeface
+import android.content.res.ColorStateList
+import android.view.WindowInsets
+import android.view.WindowInsetsController
+import android.widget.ProgressBar
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -34,6 +41,8 @@ open class HomeActivity : Activity() {
     private var screen: Screen? = null
     private var current: CurrentCall? = null
     private var shownCode: String? = null  // 코드 만들기 후 상대 입력을 기다리는 중
+    private var codeDeadline = 0L
+    private var codeEntry = ""
     private var entering = false  // 코드 입력 화면
     private var message: String? = null  // 화면 아래 한 줄 안내(오류 등)
     private var consentOn: Boolean? = null
@@ -48,18 +57,26 @@ open class HomeActivity : Activity() {
         super.onCreate(savedInstanceState)
         store = Store(this)
         api = Api(store)
+        window.setDecorFitsSystemWindows(false)
+        val lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or
+            WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
         root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Palette.BG)
-            fitsSystemWindows = true
             val pad = (24 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
         }
         setContentView(ScrollView(this).apply {
             isFillViewport = true
             setBackgroundColor(Palette.BG)
+            setOnApplyWindowInsetsListener { view, insets ->
+                val safe = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
+                view.setPadding(safe.left, safe.top, safe.right, safe.bottom)
+                insets
+            }
             addView(root)
         })
+        window.decorView.windowInsetsController?.setSystemBarsAppearance(lightBars, lightBars)
         render(localScreen() ?: Screen.HOME)
     }
 
@@ -109,7 +126,8 @@ open class HomeActivity : Activity() {
                 if (e.message == "UNAUTHORIZED") {  // 서버가 재시작돼 페어를 잊었다(메모리 저장)
                     store.reset()
                     store = Store(this); api = Api(store)
-                    message = "연결 정보가 사라졌어요. 다시 연결해 주세요."
+                    message = if (takeHelpCompletionNotice()) "이번 도움을 마쳤어요. 다음 도움은 새 번호로 연결해 주세요."
+                    else "연결 정보가 사라졌어요. 다시 연결해 주세요."
                     render(Screen.CONNECT, force = true)
                 }
                 // 그 밖의 네트워크 오류는 다음 주기에 다시 묻는다
@@ -140,6 +158,7 @@ open class HomeActivity : Activity() {
     }
 
     protected open fun drawAssistanceControls(root: LinearLayout, paired: Boolean, inCall: Boolean) = Unit
+    protected open fun takeHelpCompletionNotice(): Boolean = false
 
     private fun say(text: String?) {
         message = text
@@ -149,47 +168,85 @@ open class HomeActivity : Activity() {
     // ---- N-01 가족 연결 ----
 
     private fun drawConnect() {
-        root.title("가족과 먼저 연결해요")
-        root.body("연결된 가족에게만 전화할 수 있어요.")
+        root.title("가족과 연결하기")
+        root.body("도움을 주고받을 가족과 연결해요.")
         root.body("나는 누구인가요?", 17f, Palette.INK)
         root.toggle("부모님", "자녀", store.role == Role.PARENT) { left ->
             store.role = if (left) Role.PARENT else Role.CHILD
             redraw()
         }
-        root.spacer()
-        root.card { body("가족 한 명이 번호를 만들고, 다른 한 명이 그 번호를 입력해요.", 16f) }
-        root.primary("코드 만들기") { makeCode() }
-        root.secondary("코드 입력") { entering = true; say(null) }
+        root.card(Palette.CREAM) {
+            body("내 기기에서 새 번호를 발급해요.", 16f)
+            primary("코드 만들기") { makeCode() }
+        }
+        root.card(Palette.MIST) {
+            body("가족에게 받은 번호를 넣어요.", 16f)
+            secondary("코드 입력") {
+                // An unfinished invite may still own the old token on the server.
+                store.pairId = null
+                store.token = null
+                entering = true
+                codeEntry = ""
+                say(null)
+            }
+        }
     }
 
     private fun makeCode() = scope.launch {
         api.invite(store.role)
-            .onSuccess { (pid, code) -> store.pairId = pid; shownCode = code; say(null) }
-            .onFailure { say("번호를 만들지 못했어요 (${it.message})") }
+            .onSuccess { (pid, code) ->
+                store.pairId = pid
+                shownCode = code
+                codeDeadline = SystemClock.elapsedRealtime() + CODE_LIFETIME_MS
+                say(null)
+            }
+            .onFailure { say("번호를 만들지 못했어요. 잠시 뒤 다시 시도해 주세요.") }
     }
 
     private fun drawShowCode() {
+        val code = shownCode ?: return
         root.title("이 번호를 알려 주세요")
-        root.body("${store.role.other.label} 기기에서 '코드 입력'을 누르고 아래 번호를 넣으면 연결돼요. 10분 동안 쓸 수 있어요.")
-        root.card {
-            addView(TextView(context).apply {
-                text = spacedCode(shownCode!!); textSize = 44f; setTextColor(Palette.INK)
-                typeface = android.graphics.Typeface.DEFAULT_BOLD; gravity = android.view.Gravity.CENTER
-                contentDescription = shownCode!!.toCharArray().joinToString(" ")
-            })
+        root.body("상대 기기에서 ‘코드 입력’을 눌러 아래 번호를 입력해 주세요.")
+        root.digits(code)
+        val remaining = root.body("", 16f, Palette.BLUE).apply { typeface = Typeface.MONOSPACE }
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = (CODE_LIFETIME_MS / 1000).toInt()
+            progressTintList = ColorStateList.valueOf(Palette.ORANGE)
+            progressBackgroundTintList = ColorStateList.valueOf(Palette.SKY)
+            importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
-        root.body("상대가 입력하기를 기다리는 중…")
-        root.spacer()
-        root.secondary("취소") { shownCode = null; store.pairId = null; say(null) }
+        root.addView(progress, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(8)))
+        root.chip("상대 입력 대기")
+        val copy = root.secondary("번호 복사") {
+            getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("효자손 연결 코드", code))
+        }
+        root.secondary("새 번호 만들기") { makeCode() }
+        root.secondary("취소") {
+            shownCode = null
+            store.pairId = null
+            store.token = null
+            say(null)
+        }
+        tickJob = scope.launch {
+            while (isActive) {
+                val seconds = ((codeDeadline - SystemClock.elapsedRealtime() + 999) / 1000).coerceIn(0, progress.max.toLong())
+                progress.progress = seconds.toInt()
+                remaining.text = if (seconds > 0) "남은 시간 ${elapsed(seconds)}" else "번호가 만료됐어요"
+                copy.isEnabled = seconds > 0
+                delay(1_000)
+            }
+        }
     }
 
     private fun drawEnterCode() {
         root.title("받은 번호를 입력해요")
         root.body("${store.role.other.label}이 만든 6자리 번호예요.")
         val input = root.codeInput()
+        input.setText(codeEntry)
         root.spacer()
         root.primary("연결하기") {
             val code = input.text.toString()
+            codeEntry = code
             if (code.length != 6) return@primary say("6자리를 모두 입력해 주세요")
             scope.launch {
                 api.claimCode(store.role, code)
@@ -206,6 +263,7 @@ open class HomeActivity : Activity() {
         store.paired = true
         shownCode = null
         entering = false
+        codeEntry = ""
         message = null
         render(Screen.CONSENT, force = true)
     }
@@ -214,11 +272,13 @@ open class HomeActivity : Activity() {
 
     private fun drawConsent() {
         root.title("AI 안내를 쓸까요?")
-        root.body(
-            "통화 중 내 목소리를 글자로 바꿔, 부모님 화면에서 누를 곳을 짚어 주는 데만 써요. " +
-                "녹음 파일은 남기지 않아요. 두 사람 모두 동의해야 안내가 켜지고, 언제든 끌 수 있어요.",
-        )
-        root.body("동의하지 않아도 전화는 그대로 할 수 있어요.")
+        root.body("두 사람이 동의하면 이번 통화에서 화면 안내를 사용할 수 있어요.")
+        root.card(Palette.SKY) {
+            body("통화 음성", 17f, Palette.INK)
+            body("도와주는 사람이 말한 지시를 글자로 바꿔 확인해요. 녹음 파일은 남기지 않아요.", 16f)
+            body("화면 안내", 17f, Palette.INK)
+            body("도움받는 기기가 권한을 허용하면 누를 곳을 짚어 드려요.", 16f)
+        }
         root.spacer()
         root.primary("동의해요") { withMic { saveConsent(true) } }
         root.secondary("동의 안 함 (전화만)") { saveConsent(false) }
@@ -243,17 +303,22 @@ open class HomeActivity : Activity() {
 
     private fun drawHome() {
         val peer = store.role.other.label
-        root.card {
-            title(peer).textSize = 26f
-            chip("연결됨")
-        }
-        root.card {
-            body("도움받는 사람", 18f, Palette.INK)
-            toggle("부모님", "자녀", assistedRole == Role.PARENT) { parent ->
-                assistedRole = if (parent) Role.PARENT else Role.CHILD
-                redraw()
+        root.chip("가족 연결 완료")
+        root.title("이번 도움")
+        root.card(Palette.CREAM) {
+            body("도움받는 사람", 16f, Palette.MUTED)
+            body(assistedRole.label, 24f, Palette.INK).typeface = Typeface.DEFAULT_BOLD
+            secondary("도움받는 사람 변경") {
+                AlertDialog.Builder(this@HomeActivity)
+                    .setTitle("누가 도움받나요?")
+                    .setSingleChoiceItems(arrayOf("부모님", "자녀"), if (assistedRole == Role.PARENT) 0 else 1) { dialog, index ->
+                        assistedRole = if (index == 0) Role.PARENT else Role.CHILD
+                        dialog.dismiss()
+                        redraw()
+                    }
+                    .setNegativeButton("취소", null)
+                    .show()
             }
-            body("선택한 사람의 화면에서 누를 곳을 짚어 드려요.", 15f)
         }
         root.card {
             body("AI 안내 · ${when (consentOn) { true -> "켜짐"; false -> "꺼짐 (전화만)"; null -> "확인 중" }}", 18f, Palette.INK)
@@ -265,7 +330,7 @@ open class HomeActivity : Activity() {
         }
         root.spacer()
         root.primary("${peer}에게 전화") { withMic { dial() } }
-        root.body("가족 연결 끊기", 14f).setOnClickListener { confirmUnpair(peer) }
+        root.secondary("가족 연결 끊기") { confirmUnpair(peer) }
     }
 
     /** 통화가 끝나도 가족 연결은 남는다. 끊는 건 이 버튼뿐이라 한 번 더 묻는다. 서버가 못 받아도 이 기기는 끊는다. */
@@ -292,15 +357,17 @@ open class HomeActivity : Activity() {
 
     private fun drawOutgoing() {
         root.chip("거는 중")
-        root.title("${store.role.other.label}에게 거는 중")
-        root.body("상대가 받으면 바로 연결돼요. 30초 안에 받지 않으면 끊겨요.")
+        root.card(Palette.MIST) {
+            title("${store.role.other.label}에게 거는 중")
+            body("상대가 받으면 연결돼요.")
+        }
         root.spacer()
         root.primary("취소", Palette.RED) { hangUp() }
     }
 
     private fun drawIncoming() {
         root.chip("전화 왔어요")
-        root.title("${store.role.other.label}에게서 전화")
+        root.card(Palette.MIST) { title("${store.role.other.label}에게서 전화") }
         root.spacer()
         root.primary("받기") {
             val cid = current?.callId ?: return@primary
@@ -317,10 +384,29 @@ open class HomeActivity : Activity() {
     private fun drawInCall() {
         root.chip("통화 중")
         root.title("${store.role.other.label}와 통화 중")
-        val timer = root.body("00:00", 24f, Palette.INK)
-        val status = root.body("", 13f)  // dev 확인용: 참가자·말하는 사람·출력 장치
+        lateinit var timer: TextView
+        root.card(Palette.SKY) {
+            body("통화 시간", 16f, Palette.BLUE)
+            timer = body("00:00", 32f, Palette.INK).apply { typeface = Typeface.MONOSPACE }
+        }
+        val audio = root.card {
+            body("오디오", 16f, Palette.BLUE)
+        }
+        lateinit var speaker: android.widget.Button
+        lateinit var mute: android.widget.Button
+        audio.controls {
+            speaker = secondary("스피커") { CallService.toggleSpeaker() }
+            mute = secondary("음소거") { CallService.toggleMute() }
+        }
         tickJob = scope.launch {
-            launch { CallService.status.collect { status.text = it } }
+            launch {
+                CallService.controls.collect { state ->
+                    speaker.isEnabled = state.speakerAvailable
+                    speaker.text = if (state.speaker) "스피커 끄기" else "스피커 켜기"
+                    mute.isEnabled = state.connected
+                    mute.text = if (state.muted) "음소거 해제" else "음소거"
+                }
+            }
             while (isActive) {
                 timer.text = elapsed((SystemClock.elapsedRealtime() - callStartedAt) / 1000)
                 delay(1_000)
@@ -383,5 +469,6 @@ open class HomeActivity : Activity() {
 
     private companion object {
         const val REQ_MIC = 7
+        const val CODE_LIFETIME_MS = 600_000L
     }
 }

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import logging
 from secrets import token_urlsafe
 
@@ -24,6 +24,7 @@ from pydantic import BaseModel
 
 from .agent._execution import ExecutionContext
 from .agent.b05_workflow import B05Input, B05Workflow, is_current
+from .agent.profiles import GOAL_LABELS
 from .agent.session_adapter import from_session
 from .contracts import FinalUtterance, ScreenState
 
@@ -40,6 +41,7 @@ class IntegratedHub(SessionHub):
                          pairs=config.authenticator, pairing=config.pairing, source=config.source)
         self.workflow = workflow
         self.tasks: set[asyncio.Task] = set()
+        self._guide_offers: dict[str, tuple[str, tuple, bool]] = {}
 
     def connect(self, actor, queue, loop):
         connection = super().connect(actor, queue, loop)
@@ -55,6 +57,29 @@ class IntegratedHub(SessionHub):
         self.deliver(view.pair_id, Role(view.assisted_role), wire.control_event(
             "assist.session", view.pair_id, view.call_id, view.help_id,
             {"trace_id": control.trace_id, "basis": to_jsonable(view.basis)}))
+
+    @staticmethod
+    def _guide_scope(view) -> tuple:
+        return (view.help_id, view.consent_revision, view.mode_revision, view.goal_revision,
+                view.instruction_revision, view.projection_epoch, view.screen_revision, view.observation_health)
+
+    def deliver(self, pair_id, role, event) -> bool:
+        if event.type == wire.VIEW_EVENT:
+            control = self.current_control(pair_id)
+            if control is None:
+                return super().deliver(pair_id, role, event)
+            view = control.snapshot
+            if view.help_state == "ENDED":
+                self._guide_offers.pop(view.call_id, None)
+            elif event.help_id == view.help_id:
+                offer = self._guide_offers.get(view.call_id)
+                shown = bool(offer and offer[2] and offer[1] == self._guide_scope(view))
+                goal_id = view.goal.goal_id if view.goal and view.goal.goal_id in GOAL_LABELS else None
+                if goal_id or shown:
+                    context = {"goal_id": goal_id, "guide_shown": shown, "mode": view.mode}
+                    context["arrival_suspected"] = control.arrival_state(view.help_id) == "SUSPECTED"
+                    event = replace(event, payload={**event.payload, "goal_context": context})
+        return super().deliver(pair_id, role, event)
 
     def voice_event(self, trace_id: str, event) -> None:
         """Use the identifiers and event IDs issued by the voice service."""
@@ -91,10 +116,24 @@ class IntegratedHub(SessionHub):
         if voice_service.role_of(actor.pair_id, actor.user_id) != actor.role or kind == "consent.updated":
             event_id = message.get("event_id") if isinstance(message, dict) else None
             return wire.rejected(event_id, "FORBIDDEN", "UNAUTHORIZED")
+        control = self.current_control(actor.pair_id) if kind == "guide.shown" else None
+        if control is not None:
+            view = control.snapshot
+            offer = self._guide_offers.get(view.call_id)
+            payload = message.get("payload")
+            if (not offer or not isinstance(payload, dict) or payload.get("decision_id") != offer[0]
+                    or offer[1] != self._guide_scope(view)):
+                return wire.rejected(message.get("event_id"), "CONFLICT", "STALE_BASIS")
         reply = super().handle_client(actor, message)
         if reply["type"] == wire.ACK:
             control = self.current_control(actor.pair_id)
             if control is not None:
+                if kind == "guide.shown":
+                    call_id = control.snapshot.call_id
+                    decision_id, scope, shown = self._guide_offers[call_id]
+                    if not shown:
+                        self._guide_offers[call_id] = (decision_id, scope, True)
+                        self._push_views(control)
                 if kind == "help.stop" and actor.role in voice_service.consenting_roles(actor.pair_id):
                     revision = voice_service.get_consent(actor).consent_revision
                     voice_service.set_consent(actor, False, revision, call_id=control.snapshot.call_id)
@@ -204,7 +243,11 @@ class IntegratedHub(SessionHub):
             self.submit_arrival(basis.call_id, to_jsonable(data.arrival))
         if data.target or data.verdict or data.recovery or data.guide or data.warning:
             current = control.snapshot
-            payload = {"basis": to_jsonable(current.basis), "trace_id": control.trace_id,
+            decision_id = token_urlsafe(18)
+            scope = self._guide_scope(current)
+            previous = self._guide_offers.get(current.call_id)
+            self._guide_offers[current.call_id] = (decision_id, scope, bool(previous and previous[1] == scope and previous[2]))
+            payload = {"basis": to_jsonable(current.basis), "trace_id": control.trace_id, "decision_id": decision_id,
                        "target": to_jsonable(data.target), "verdict": to_jsonable(data.verdict),
                        "recovery": to_jsonable(data.recovery), "guide": to_jsonable(data.guide),
                        "warning": data.warning}
