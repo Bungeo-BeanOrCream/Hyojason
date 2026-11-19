@@ -20,6 +20,11 @@ from .infer_zoro_choice import (
 )
 from .profiles import GOAL_LABELS, TARGETS
 
+# 통화 후 안내는 화면이 안정된 뒤 3초(GuideGate.DELAY_MS)를 기다려 표시한다. 4500ms이면 실제로 1.5초만
+# 보이고, 같은 Basis는 다시 추론하지 않아(contracts.md 제안 만료) 부모가 읽기 전에 사라졌다(#37 실측).
+# 설정 화면 알림의 15초 만료와 맞춘다. 화면이 바뀌면 Basis가 달라져 그 전에 폐기된다.
+PROPOSAL_VALID_MS = 15_000
+
 
 @dataclass(frozen=True, kw_only=True)
 class ChoosePostCallActionInput:
@@ -150,7 +155,7 @@ class ChoosePostCallAction:
             target_id=selected.target_id,
             message_key=selected.label_key,
             confidence=model.data.probabilities[winner],
-            valid_for_ms=4500,
+            valid_for_ms=PROPOSAL_VALID_MS,
             basis=basis,
         )
         return run.finish(
