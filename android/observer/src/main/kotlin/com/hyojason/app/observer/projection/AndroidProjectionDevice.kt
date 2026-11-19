@@ -36,14 +36,14 @@ internal class AndroidProjectionDevice(
                     val surface = reader?.surface
                     val display = virtualDisplay
                     if (contentVisible && surface != null && display != null &&
-                        SystemClock.elapsedRealtime() - lastFrameMs >= 550L) {
+                        SystemClock.elapsedRealtime() - lastFrameMs >= 350L) {
                         // Static UI can stop producing buffers. Refresh the same approved display
                         // so the safety gate can verify a fresh frame instead of reusing stale pixels.
                         display.surface = null
                         display.surface = surface
                     }
                 }
-                imageHandler.postDelayed(this, 400L)
+                imageHandler.postDelayed(this, 220L)
             } catch (_: RuntimeException) {
                 callbacks.post(onSystemStop)
             }
@@ -80,7 +80,7 @@ internal class AndroidProjectionDevice(
                 "Hyojason parent screen", width, height, densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, initial.surface, null, callbacks,
             ))
-            imageHandler.postDelayed(refreshIdleCapture, 400L)
+            imageHandler.postDelayed(refreshIdleCapture, 220L)
         } catch (failure: RuntimeException) {
             close()
             throw failure

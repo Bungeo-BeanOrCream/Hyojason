@@ -7,7 +7,7 @@ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.hyojason.app.observer.LocalRect
 
 /** Exposes only exact, profile-approved labels at their local viewport coordinates. */
-class KoreanTextScan : AutoCloseable {
+class KoreanTextScan(private val maxWidth: Int = Int.MAX_VALUE) : AutoCloseable {
     private val recognizer = TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
 
     fun scan(input: DetectionInput, profile: DetectionProfile, onResult: (FeatureScan) -> Unit) {
@@ -32,11 +32,15 @@ class KoreanTextScan : AutoCloseable {
             }
         }.filter { it.kind == FeatureKind.TEXT }.distinct().groupBy { normalized(it.value) }
         val buffer = pixels.copyArgb()
-        val image = try {
+        val original = try {
             Bitmap.createBitmap(buffer, pixels.width, pixels.height, Bitmap.Config.ARGB_8888)
         } finally {
             buffer.fill(0)
         }
+        val image = if (original.width > maxWidth) {
+            Bitmap.createScaledBitmap(original, maxWidth, maxOf(1, original.height * maxWidth / original.width), true)
+                .also { original.recycle() }
+        } else original
         val task = try {
             recognizer.process(InputImage.fromBitmap(image, 0))
         } catch (_: RuntimeException) {
@@ -52,11 +56,13 @@ class KoreanTextScan : AutoCloseable {
                         val key = allowed[normalized(line.text)]?.singleOrNull() ?: return@mapNotNull null
                         val bounds = line.boundingBox ?: return@mapNotNull null
                         if (bounds.isEmpty || bounds.left < 0 || bounds.top < 0 ||
-                            bounds.right > pixels.width || bounds.bottom > pixels.height
+                            bounds.right > image.width || bounds.bottom > image.height
                         ) return@mapNotNull null
                         FrameFeature(key, LocalRect(
-                            viewport.left + bounds.left, viewport.top + bounds.top,
-                            viewport.left + bounds.right, viewport.top + bounds.bottom,
+                            viewport.left + bounds.left * pixels.width / image.width,
+                            viewport.top + bounds.top * pixels.height / image.height,
+                            viewport.left + (bounds.right * pixels.width + image.width - 1) / image.width,
+                            viewport.top + (bounds.bottom * pixels.height + image.height - 1) / image.height,
                         ))
                     }
                     FeatureScan(FeatureKind.TEXT, true, matches)

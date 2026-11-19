@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
 import android.provider.Settings
-import android.util.Log
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -107,7 +106,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             settings.versionName?.let { ProfileVersion(it, Build.PRODUCT) }
         }.getOrNull()
     }
-    private val scanner = lazy { KoreanTextScan() }
+    private val scanner = lazy { KoreanTextScan(maxWidth = 720) }
     private var socket: WebSocket? = null
     private var token: String? = null
     private var connected = false
@@ -394,12 +393,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             area, area, activity.display?.rotation ?: 0, emptyList(), FrameSafety.ALLOWED)
         val diagnostic = diagnostic("B-03", emptyBasis().copy(projection_epoch = source.epoch))
         val observation = withContext(Dispatchers.Default) {
-            captured.use {
-                val outcome = pipeline.process(input, diagnostic)
-                Log.v("HyojasonObservation", "${outcome.prepared.outcome}/${outcome.detection?.outcome}/" +
-                    "${outcome.detection?.data?.screen_kind}/${outcome.detection?.data?.targets?.size}")
-                outcome.stabilization
-            }
+            captured.use { pipeline.process(input, diagnostic).stabilization }
         } ?: return
         if (frames != source || flow != pipeline) return
         if (observation.locationInvalidated || observation.verdictPending) clearOverlay()

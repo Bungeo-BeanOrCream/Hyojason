@@ -11,7 +11,13 @@ Android Studio에서 이 디렉터리를 열고 API 35 가상 기기 또는 연�
 
 ## 임시 AVD 검증 화면
 
-debug 빌드는 `com.hyojason.app.debug.VerificationActivity`를 실행한다. 오버레이 권한을 설정한 뒤 테스트 테두리를 표시하고 제거할 수 있다. 캡처 버튼은 N-07 연결이 들어올 때까지 대기 상태다. 기능 브랜치 `A`의 검증 화면은 실제 캡처 시작·중지와 프레임 수 확인을 지원한다.
+앱 아이콘은 통합 통화 화면을 연다. 오버레이나 화면 공유만 분리해서 확인하려면 debug APK를 설치한 뒤 검증 화면을 직접 연다.
+
+```sh
+adb shell am start -n com.hyojason.app/.debug.VerificationActivity
+```
+
+오버레이 권한을 설정한 뒤 테스트 테두리를 표시하고 제거할 수 있다. 실제 캡처 시작·중지와 프레임 수 확인도 지원한다. [통합 백엔드 실행](../server/README.md)
 
 ## 빌드와 테스트
 

@@ -157,9 +157,8 @@ class IntegratedHub(SessionHub):
         try:
             result = await asyncio.to_thread(self.workflow.run, request,
                                              read_current=lambda: self._snapshot(control))
-            if self._source is Source.FIXTURE:
-                log.info("fixture agent %s: %s %s", request.event, result.status,
-                         result.outcome or result.diagnostics.terminal_error.code)
+            log.info("agent %s %s: %s %s", result.diagnostics.source, request.event, result.status,
+                     result.outcome or result.diagnostics.terminal_error.code)
             if result.data is not None:
                 self._publish_result(control, request, result.data)
         except Exception as error:  # Keep the call alive and avoid logging utterance text.
