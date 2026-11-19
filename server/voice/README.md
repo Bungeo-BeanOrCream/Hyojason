@@ -35,7 +35,8 @@ D가 main에 합쳐지면 `PYTHONPATH` 설정과 worktree가 필요 없다(`pypr
 | `service.py` | **D가 부를 B 판단 함수 묶음**(#10). 인증(`authenticate`·`role_of`), N-01 `invite`·`claim`·`unpair`, N-02, N-03 `call_op`·`rtc_token`, 웹훅, 이벤트 출구 `set_event_sink`. FastAPI 없음 | FIXTURE + AVD LIVE |
 | `auth.py` | 기기 Bearer 토큰 발급·확인 | FIXTURE + AVD LIVE |
 | `app.py` | `service.py`를 감싼 B 임시 라우트(D 연결 전 dev·AVD용). 판단 로직 없음 | — |
-| `worker.py` | 수락 때 자동 실행. 참가·퇴장 → N-03, 역할별 마이크 → N-04 → RTZR → N-05 → N-06 | LIVE 확인 전 |
+| `worker.py` | 수락 때 자동 실행. 참가·퇴장 → N-03, 역할별 마이크 → N-04 → 잡음 제거 → RTZR → N-05 → N-06 | LIVE 확인 전 |
+| `denoise.py` | STT 앞 배경 잡음 제거(GTCRN 스트리밍 ONNX). 모델은 `models/` | FIXTURE |
 
 ## STT worker
 
@@ -48,7 +49,24 @@ curl -sS localhost:8000/v1/dev/outbox
 ```
 
 서버 상태를 안 바꾸고 인식만 볼 때(원문 출력은 dev 전용):
-`PAIR_ID=<PID> .venv/bin/python -m hyojason_voice.worker <call_id> --print-text [--no-keywords]`
+`PAIR_ID=<PID> .venv/bin/python -m hyojason_voice.worker <call_id> --print-text [--no-keywords] [--no-denoise]`
+
+## STT 앞 배경 잡음 제거
+
+worker는 동의·트랙 검사(N-04)를 통과한 마이크 프레임만 RTZR로 보낸다. 그 전에 트랙마다 배경 잡음을 줄인다. 다른 사람의 목소리는 거르지 않는다.
+
+- 모델: [GTCRN](https://github.com/Xiaobin-Rong/gtcrn) 스트리밍 ONNX(DNS3 학습, MIT, 535 KB, `models/LICENSE-GTCRN`). 이 모델을 고른 이유: onnxruntime과 numpy만 있으면 돌고 프레임 단위로 처리된다. DeepFilterNet은 `numpy<2`·`packaging<24`를 요구해 현재 `requirements.txt`와 충돌한다.
+- 흐름: 48 kHz 프레임 → LiveKit `AudioResampler`로 16 kHz → 16ms마다 모델 1회 → RTZR. 지연은 32ms이고, 처리 시간은 한 스트림에 16ms당 약 2.5ms(CPU 1스레드)다. 모델 실행은 이벤트 루프 밖 스레드에서 한다.
+- 설정: `HYOJASON_VOICE_DENOISE=off`로 끄고, `HYOJASON_VOICE_DENOISE_MIX=0.8`처럼 원래 소리를 섞을 수 있다(기본 1.0). 모델을 못 올리거나 통화 중 오류가 나면 경고만 남기고 원래 소리를 보낸다.
+- PCM과 모델 상태는 메모리에만 두고 트랙이 끝나면 버린다(B02.2).
+
+오프라인 평가(16 kHz mono wav 폴더, 잡음 폴더를 주지 않으면 합성 배경 잡음 5종):
+
+```bash
+python scripts/eval_denoise.py <깨끗한 음성 폴더> [--noise-dir <잡음 폴더>] [--snr 0 5 10]
+```
+
+한국어 TTS 6문장(시연 지시문)에 합성 잡음 5종을 SNR 0/5/10 dB로 섞어 SI-SDR을 쟀다. 평균 +10.3 dB, 최저 +3.6 dB(선풍기 험, 0 dB)로 모든 조건에서 좋아졌다. 이 결과는 FIXTURE다. RTZR 인식률 변화는 실제 통화에서 `--no-denoise`와 비교해 확인해야 한다(미검증).
 
 ## 앱 폴링
 
