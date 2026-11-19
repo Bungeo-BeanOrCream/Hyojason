@@ -120,7 +120,10 @@ def below_fold_codes() -> tuple[str, ...]:
 
 def create_app(workflow: B05Workflow | None = None, *, fixture: bool = False) -> FastAPI:
     """Mount control routes beside the voice API. Use one process for its memory state."""
-    evidence = ("visible_target", "stable_screen_transition", "alarm_next:tomorrow:06:00",
+    # EXPERIMENT (#37): alarm cards the parent device can read (HH:00, HH:30 today/tomorrow).
+    alarms = tuple(f"alarm_next:{day}:{hour:02d}:{minute:02d}" for day in ("today", "tomorrow")
+                   for hour in range(24) for minute in (0, 30))
+    evidence = ("visible_target", "stable_screen_transition", *alarms,
                 *(f"observed:{target}" for target in TARGET_IDS), *below_fold_codes())
     config = ServerConfig(authenticator=voice_service, service_token=token_urlsafe(),
                           catalog=default_catalog(evidence),

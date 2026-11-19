@@ -193,6 +193,8 @@ def goal_step(goal: Goal, screen: ScreenState) -> str | None:
 
     경로를 뒤에서부터 보며 현재 화면에 보이거나 화면 아래에 있다고 확인된 첫 TAP 대상을 고른다.
     """
+    if arrival_evidence(goal, screen):
+        return None
     for target_id in reversed(GOAL_ROUTES.get(goal.goal_id, ())):
         profile = TARGETS[target_id]
         if profile.action != "TAP" or profile.screen != screen.screen_kind:

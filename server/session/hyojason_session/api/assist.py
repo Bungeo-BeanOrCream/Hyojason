@@ -75,6 +75,8 @@ class AssistedSessionHub(SessionHub):
                 goal_id = view.goal.goal_id if view.goal and view.goal.goal_id in GOAL_LABELS else None
                 if goal_id or shown:
                     context = {"goal_id": goal_id, "guide_shown": shown, "mode": view.mode}
+                    if goal_id:  # EXPERIMENT (#37): the time picker guide needs the approved time.
+                        context["approved_slots"] = dict(view.goal.approved_slots)
                     context["arrival_suspected"] = control.arrival_state(view.help_id) == "SUSPECTED"
                     event = replace(event, payload={**event.payload, "goal_context": context})
         return super().deliver(pair_id, role, event)
