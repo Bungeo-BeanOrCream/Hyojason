@@ -13,12 +13,11 @@ import org.json.JSONObject
 
 /**
  * 이 기기의 연결 정보(SharedPreferences). 기기 토큰은 처음 invite/claim 때 서버가 준다(#10).
- * ponytail: 서버 주소는 AVD 기준 고정값.
  */
 class Store(context: Context) {
     private val p = context.getSharedPreferences("hyojason", Context.MODE_PRIVATE)
 
-    val server: String = SERVER
+    val server: String = BuildConfig.BACKEND_URL
     var token: String?  // 비밀값. 로그·화면에 내지 않는다
         get() = p.getString("token", null)
         set(v) = p.edit().putString("token", v).apply()
@@ -38,10 +37,6 @@ class Store(context: Context) {
     /** 서버가 재시작돼 페어를 잊었거나 새로 연결할 때. 토큰도 지워 서버가 새 기기로 보게 한다. */
     fun reset() {
         p.edit().clear().apply()
-    }
-
-    companion object {
-        const val SERVER = "http://10.0.2.2:8000"  // AVD에서 본 Mac. 실기기는 Mac의 LAN IP로
     }
 }
 
