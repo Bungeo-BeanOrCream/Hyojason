@@ -22,7 +22,7 @@
 |---|---|---|---|
 | N-01 resolve_pair | 서버 + Android 온보딩 | VS Code + Android Studio | 일회용 코드로 부모·자녀 1:1 페어 |
 | N-02 resolve_consent | Android + 서버 | Android Studio + VS Code | AI 처리 동의와 OS 권한을 따로 계산 |
-| N-03 start_or_close_call | Android + LiveKit + 서버 | Android Studio (+ 토큰 API는 VS Code) | 발신 → 수락 → RTC 연결/종료, 스피커 경로 1회 평가 |
+| N-03 start_or_close_call | Android + LiveKit + 서버 | Android Studio (+ 토큰 API는 VS Code) | 발신 → 수락 → RTC 연결/종료, 역할별 오디오 출력(부모 스피커·자녀 수화기) |
 | N-04 ingest_participant_audio | RTC 수신 서버 | VS Code | 승인된 마이크 트랙만 역할별로 받기 |
 | N-05 transcribe_korean_turn | STT | VS Code | 한국어 부분/확정 인식 |
 | N-06 finalize_instruction_turn | 서버 | VS Code | 중복·역순·종료 후 결과를 거르고 `speech.final` 1회 발행 |
@@ -71,7 +71,7 @@
 - [ ] N-03 끊기: `call.ended` 발행 → STT 취소 → 버퍼 폐기 → 같은 call_id로 늦게 온 확정문 폐기(B02.3)
 - [ ] 도움 종료는 B가 하지 않음. `help.stop` 합성 금지
 - [ ] 자녀 화면의 도착 추정·완료 버튼을 D(N-21/N-22)와 연동
-- [ ] 첫 자녀 지시가 오면 스피커 전환 1회 평가. 이어폰·Bluetooth가 있으면 그대로 둠
+- [ ] 연결 시 부모는 스피커, 자녀는 수화기. 이어폰·Bluetooth가 있으면 그대로 둠. 음소거 버튼 없음
 
 ### 09:00–12:00 · 엣지 케이스와 정식 기능
 - [ ] N-01 일회용 초대 코드 (제3 단말 재사용 거부)

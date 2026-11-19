@@ -4,7 +4,7 @@
 발신 방향은 안내 대상(assisted_role, #6)과 별개다 — 여기서는 다루지 않는다.
 
 RTC 연결 상태만 다룬다. 도움 종료(help.stop)는 만들지 않는다 — N-11/N-22 몫.
-스피커 전환은 Android가 한다(call_id당 1회, 이어폰·Bluetooth면 유지). 서버는 SYSTEM으로만 기록.
+오디오 출력은 Android가 연결 시 정한다(부모 스피커, 자녀 수화기, 이어폰·Bluetooth면 유지). 서버는 SYSTEM으로만 기록.
 LiveKit 토큰 발급은 app.rtc_token. 룸 이름은 call_id라 통화마다 새 방이다.
 """
 
