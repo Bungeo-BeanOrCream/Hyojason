@@ -106,6 +106,18 @@ class ParentGuideFlowTest {
         assertNull(host.border)
     }
 
+    @Test fun newHelpOrNewEpochMakesOldGuideStaleAndClearsIt() {
+        for (latest in listOf(basis.copy(projection_epoch = "epoch2"), basis.copy(help_id = "help2"))) {
+            val host = Host()
+            run(at(3_000), host)
+            val result = run(at(3_000).copy(latestBasis = latest), host)
+            assertEquals("suppressed", result.outcome)
+            assertEquals("STALE_BASIS", result.data?.reason)
+            assertNull(host.border)
+            assertNull(host.banner)
+        }
+    }
+
     @Test fun b06_3_newInstructionDropsOldTimerAndDisplay() {
         val clock = GateClock()
         clock.applyMode("help", HelpMode.CALL_CHILD_LED, 1)

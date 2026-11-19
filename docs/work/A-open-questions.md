@@ -1,6 +1,6 @@
 # A 슬롯 구현 확인 사항
 
-현재 담당: Claude (2026-11-19, Codex 5시간 제한으로 인계)
+현재 담당: Claude (2026-11-19, Codex 5시간 제한으로 인계) — 에뮬레이터 확인 대기 중, 에이전트 작업 없음
 
 ## N-19에서 최신성 검증 실패 시 반환할 결과
 
@@ -60,6 +60,7 @@
    - Overlay·타이머·제안 폐기는 **하나로 묶인 진입점이 없다.** `GateClock.clear()`/`cancelTimer()`, `ParentResumeGate`의 `clearDisplay`·`cancelScheduledTimer`·`clearHelpCache` 콜백, `ParentGuideSuppression`이 각각 흩어져 있고, 부모 통합 앱(B가 채울 `:app`)이 직렬 이벤트 루프에서 순서대로 호출하는 구조다. "도움 종료" 이벤트 하나로 위 셋을 한꺼번에 부르는 함수는 아직 없다. 필요하면 별도 지시로 만든다(이번에는 만들지 않았다).
 3. **새 도움 = 새 `projection_epoch` → 이전 응답 `STALE_BASIS`**
    - 새 승인마다 새 epoch를 발급한다(`ProjectionSession.open`의 `newEpoch`). 테스트 존재: `ProjectionSessionTest.newApprovalCreatesFreshEpochAndClosesThePreviousSource`(새 epoch·이전 소스 닫힘), `newestFrameWinsAndOtherEpochIsWiped`, `FrameDetectionTest`의 구 epoch 프레임 `STALE_BASIS`(171행), `ScreenStabilizerTest`의 구 epoch `STALE_BASIS`(81행)와 `B03_2_newEpochUsesPreviousScreenRevisionWithoutReset`.
+   - (갱신) `ParentGuideFlowTest.newHelpOrNewEpochMakesOldGuideStaleAndClearsIt`가 구 epoch·다른 help_id의 안내가 `STALE_BASIS`로 폐기되고 표시가 지워지는 것을 확인한다. 아래 "없는 것"은 이 테스트 추가 전 기록이다.
    - 없는 것: **새 도움 시작 → 이전 도움의 기존 안내 응답이 `GuideGate`에서 `STALE_BASIS`로 폐기되는 통합 테스트**는 별도로 없다. `GuideGateTest:115`가 STALE_BASIS를 확인하지만 epoch 불일치 단독 케이스인지는 보강 확인이 필요하다. 실기기 재승인 흐름은 `UNVERIFIED`다.
 4. **"부모 기기" 고정 표현 목록 (변경 안 함)**
    - 코드(`*.kt`)에는 한글 "부모 기기" 문자열이 없다. 이름에 박힌 것은 `ParentResumeGate`, `ParentReconnect`, `ParentGuideSuppression`(`overlay/.../gate/`), `ParentRunEvidence.kt`의 `ParentRun`·`ParentTiming`·`ParentObservation`(`app/.../debug/`)이고, 증거의 `clock_id`가 `parent_monotonic`이다.
@@ -76,15 +77,16 @@
 
 - `overlay/surface`: 판단은 `ParentSurfaces.render`(JVM, 테스트 20.1~20.5 통과), Android 창은 `AndroidSurfaceHost`로 분리했다. 테두리 창은 `FLAG_NOT_TOUCHABLE`, 상단 띠는 끄기·통화로 버튼만 터치를 받는다.
 - 결과: 표시 `success/shown`, 정리 `success/cleared`, 테두리만 막힘 `partial/banner_only`, 권한 없음·띠 창 실패 `error`(`OVERLAY_DENIED`/`WINDOW_FAILED`, 창 모두 제거).
-- `UNVERIFIED`: 실제 터치 통과, 권한 철회 시 소멸, Settings 대상·Clock 저장 터치는 AVD·시연 기기에서 사람이 확인해야 한다. 사용자 이벤트(끄기/통화로)를 N-22로 보내는 연결과 N-19 결과를 `SurfaceInput`으로 잇는 호출부는 아직 없다.
+- `UNVERIFIED`: 실제 터치 통과, 권한 철회 시 소멸, Settings 대상·Clock 저장 터치는 AVD·시연 기기에서 사람이 확인해야 한다. N-19 결과를 잇는 호출부는 `ParentGuideFlow`로 구현했다(아래 "B-06 호출부 연결"). 사용자 이벤트(끄기/통화로)를 N-22로 보내는 연결은 아직 없다.
 
 ## 진행 상태
 
 - 현재 상태: 골격 PR #7(`A-gradle-skeleton`, e32106f 포함)과 #8·#9는 `main`에 머지됐다. 로컬 `A`는 머지 전 기준(merge-base `ce7dc38`)이라 `main`과 갈라져 있다. `A`에서 추가 지시 4~6(`ParentRunEvidence`, #6 확인, #5 trace_id 주입점)을 처리했다. 앱·라이브러리 빌드와 JVM 테스트 통과. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.14.7, JVM 타깃 17, JUnit 4.13.2. Windows 한글 경로에서는 상위 폴더를 임시 드라이브 문자(`subst`)에 연결해 실행한다. SDK는 체크아웃 바깥의 `.android-sdk`를 사용한다.
-- 다음 할 일: 사용자 확인 후 `A`를 최신 `main` 위로 정리(rebase 또는 새 브랜치)하고 푸시·PR. Android 15 AVD에서 N-07·N-20 실동작 확인(사람 몫), N-19→N-20 호출부 연결.
-- 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경.
-- 막힌 것: `A`와 `main` 정리 방식 승인, N-07 Android 15 실동작 확인, `trace_id` 발급 주체 답변(D).
+- 갱신(2026-11-19): `A-rebased`(origin/main c3f3a84 위)에서 N-19→N-20 호출부 `ParentGuideFlow`를 구현했다(9e8549c 및 후속 테스트). 오버레이 JVM 테스트와 `:app:assembleDebug` 통과. 에뮬레이터 결과는 모두 `UNVERIFIED`다.
+- 다음 할 일: 사람이 Mac에서 36.1 에뮬레이터로 확인한다. 항목과 검증 후 작업은 [A-emulator-verification.md](A-emulator-verification.md). 확인 후 사용자 확인을 받아 푸시·PR(Big Node별).
+- 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 푸시·PR, fixture의 LIVE 처리, #6 합의 전 이름 변경, 에뮬레이터 항목의 에이전트 단독 PASS 선언, 36.1 결과를 Android 15로 기록.
+- 막힌 것: 에뮬레이터 확인(사람), `A`/`A-rebased`와 `main` 정리 방식 승인, `trace_id` 발급 주체 답변(D), N-22 연결의 B/D 협의. claude-mem 로그인 만료(`/login` 필요).
 
 ## AGENTS.md 테스트 실행 명령 제안
 
@@ -126,5 +128,5 @@ try {
 - `ParentGuideFlow.run`(overlay/gate): N-19 `GuideGate.evaluate` → N-20 `ParentSurfaces.render`를 묶어 `NodeResult<ParentGuideData>`(node_id=B-06)를 만든다.
 - 표시 없음/보호 화면/캡처 공백/동의 철회/종료/STALE_BASIS는 먼저 `host.clear()` 후 success/suppressed. `cancel_timer`면 `GateClock`을 취소한다.
 - 정책 거부는 지정 문구만(success/policy_denied). 테두리 불가는 partial/banner_only, 권한·창 실패는 error(outcome=null).
-- JVM 테스트 B06.1~B06.3 통과(`ParentGuideFlowTest` 5건). **B06.4(실제 Settings/Clock 터치 통과)는 UNVERIFIED — 사람이 AVD/실기기에서 확인해야 한다.**
+- JVM 테스트 B06.1~B06.3과 구 epoch·help_id 폐기 포함 `ParentGuideFlowTest` 6건 통과. **B06.4(실제 Settings/Clock 터치 통과)는 UNVERIFIED — 사람이 AVD/실기기에서 확인해야 한다.**
 - 남은 일: 사용자 이벤트(DISMISS_GUIDE/RETURN_TO_CALL)를 N-22로 보내는 연결(B/D 경로 협의), AVD 확인, PR은 사용자 확인 후.
