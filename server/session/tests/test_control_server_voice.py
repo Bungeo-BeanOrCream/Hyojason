@@ -17,6 +17,7 @@ pytest.importorskip("fastapi", reason="제어 서버 테스트는 fastapi·httpx
 pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
+from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
 from hyojason_session.api.agent_bridge import AgentBridge  # noqa: E402
 from hyojason_session.api.app import ServerConfig, create_app, create_app_from_env, voice_from_env  # noqa: E402
@@ -133,9 +134,12 @@ class FakeVoice:
         return self._ok("paired", pair_id="pair-b"), (None if authorization else "new-device-token")
 
     def unpair(self, who):
-        for call in self.calls.values():
+        """B와 같이: 진행 중 통화를 끝내고(call.ended) 페어·동의를 지운다 → 두 토큰 모두 인증 실패."""
+        for call in list(self.calls.values()):
             if call["pair_id"] == who.pair_id and call["state"] != "ENDED":
                 self.call_op(Operation.END, who, call["call_id"])
+        self.actors = {t: a for t, a in self.actors.items() if a.pair_id != who.pair_id}
+        self.consents.pop(who.pair_id, None)
 
     # N-02
     def get_consent(self, who):
@@ -374,3 +378,70 @@ def test_b07_real_b_unpair_closes_roles_and_ends_help(real_b, monkeypatch, termi
         for headers in (parent, child):
             stale = client.get("/v1/calls/current", headers=headers)
             assert (stale.status_code, stale.json()) == (403, {"detail": "UNAUTHORIZED"})
+
+
+# --- 가짜 B로 도는 종료 정리 (실제 B 테스트는 livekit이 없으면 건너뛰므로 같은 흐름을 여기서도 본다) ---
+
+GOAL_TEXT = "화면 자동 꺼짐을 10분으로 바꿔 줘. 디스플레이 눌러 줘"
+
+
+def connected_call(b, pws, cws):
+    """양쪽 동의 → 부모 발신 → 자녀 수락 → 양쪽 참가 → 목표가 생긴 자녀 발화까지 진행한 통화."""
+    consent_both(b.client)
+    call = b.client.post("/v1/calls", headers=PARENT_H).json()["call_id"]
+    b.client.post(f"/v1/calls/{call}/accept", headers=CHILD_H)
+    for h in (PARENT_H, CHILD_H):
+        b.client.post(f"/v1/dev/calls/{call}/joined", headers=h)
+    b.client.post("/v1/dev/speech-final", headers=CHILD_H,
+                  json={"call_id": call, "speaker_role": "CHILD", "text": GOAL_TEXT})
+    assert b.hub.control_for(call).snapshot.goal.goal_id == "SET_TIMEOUT"
+    collect(pws), collect(cws)
+    return call
+
+
+def until_closed(ws) -> tuple[list[dict], int]:
+    got = []
+    with pytest.raises(WebSocketDisconnect) as closed:
+        while True:
+            got.append(ws.receive_json())
+    return got, closed.value.code
+
+
+def test_b07_unpair_with_fake_b_ends_post_call_help_and_closes_sockets(b):
+    """#10 확인 항목: 가족 연결 끊기 뒤 통화 후 도움과 열린 WS가 남지 않는다 (B와 같은 unpair를 흉내 낸 가짜 B)."""
+    with b.client.websocket_connect("/v1/events", headers=PARENT_H) as pws, \
+            b.client.websocket_connect("/v1/events", headers=CHILD_H) as cws:
+        call = connected_call(b, pws, cws)
+        assert b.client.post("/v1/pairs/unpair", headers=CHILD_H).json() == {"outcome": "unpaired"}
+        parent, parent_code = until_closed(pws)
+        child, child_code = until_closed(cws)
+
+    assert "mode.changed" in types(parent)  # B가 통화를 끝내 통화 후 이어받기로 넘어갔다가
+    assert [m["payload"]["reason"] for m in of(parent, "help.ended")] == ["CONSENT_REVOKED"]
+    assert [m["payload"]["reason"] for m in of(child, "help.ended")] == ["CONSENT_REVOKED"]
+    assert (parent_code, child_code) == (4401, 4401)  # help.ended를 받은 뒤 닫힌다
+    s = b.hub.control_for(call).snapshot
+    assert (s.call_state, s.help_state, s.goal) == ("ENDED", "ENDED", None)
+    assert not [key for key in b.hub._connections if key[0] == "pair-b"]
+    tomb = b.hub.tombstones_of("pair-b").get(s.help_id)
+    assert (tomb.end_reason.value, tomb.resume_requires_consent) == ("CONSENT_REVOKED", True)
+    with pytest.raises(WebSocketDisconnect) as again:  # 지워진 토큰으로는 다시 붙을 수 없다
+        with b.client.websocket_connect("/v1/events", headers=PARENT_H) as ws:
+            ws.receive_json()
+    assert again.value.code == 4401
+
+
+def test_consent_revoked_after_hangup_ends_the_post_call_help(b):
+    """통화가 끝난 뒤 이어지는 도움 중에 B에서 동의를 철회해도 그 도움이 끝난다."""
+    with b.client.websocket_connect("/v1/events", headers=PARENT_H) as pws, \
+            b.client.websocket_connect("/v1/events", headers=CHILD_H) as cws:
+        call = connected_call(b, pws, cws)
+        b.client.post(f"/v1/calls/{call}/end", headers=CHILD_H)
+        s = b.hub.control_for(call).snapshot
+        assert (s.call_state, s.mode, s.help_state) == ("ENDED", "POST_CALL_AGENT", "ACTIVE")
+        collect(pws), collect(cws)
+        rev = b.client.get("/v1/consent", headers=PARENT_H).json()["consent_revision"]
+        b.client.post("/v1/consent", headers=PARENT_H, json={"enabled": False, "consent_revision": rev})
+        ended = of(collect(pws), "help.ended")
+    assert [m["payload"]["reason"] for m in ended] == ["CONSENT_REVOKED"]
+    assert b.hub.control_for(call).snapshot.help_state == "ENDED"
