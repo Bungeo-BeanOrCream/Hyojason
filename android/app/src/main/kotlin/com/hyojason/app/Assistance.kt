@@ -552,8 +552,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
      */
     private fun renderHomeHint(): Boolean {
         val goal = goalContext?.optString("goal_id").orEmpty()
+        // Leaving home for an app the profile does not know (e.g. tapping Clock from the app list) is
+        // usually the next step, not a wrong turn, so only nudge home when the parent did not come from home.
         val away = frames != null && receivesHelp && connected && goal.isNotEmpty() &&
-            published?.screen_kind == "unknown"
+            published?.screen_kind == "unknown" && lastStableKind != "home"
         if (!away) {
             if (homeHintShown) { host.clear(); homeHintShown = false }
             return false
