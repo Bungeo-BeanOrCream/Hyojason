@@ -73,3 +73,15 @@ N-23이 비우는 범위(CleanupScope): 서버 HELP_STATE · NAVIGATION_TRAIL ·
 추가 확인 요청
 - **B**: 자녀 앱이 help.complete에 help_id만 실어 보내고, help.ended·arrival.* 를 위 규칙으로 처리할 수 있는가.
 - **C**: N-18 ArrivalDecision의 basis를 위 필드로 채울 수 있는가. 판단 결과 저장소가 생기면 `purge(help_id)`(scope=INFERENCE_RESULTS)를 구현해 N-23 정리에 연결해 달라.
+
+## 6. 제어 이벤트 봉투에 trace_id 추가 (제안)
+
+trace_id는 서버가 발급한다(D-status 결정 메모 6). 이를 앱과 주고받으려면 contracts.md의 봉투 `v, type, event_id, pair_id, call_id, help_id, payload`에 필드가 하나 더 필요하다.
+
+| 필드 | 규칙 |
+|---|---|
+| trace_id | 통화 1회에 1개. 서버가 통화를 만들 때 발급하고 통화가 끝날 때까지 유지(help_id가 바뀌어도 같음). 서버 → 앱 이벤트에는 항상 싣는다. 앱 → 서버 이벤트에는 받은 값을 그대로 다시 싣고, 앱이 새로 만들지 않는다. 다르면 서버는 통화의 값으로 기록한다. 통화 생성 전 이벤트(`call.invite` 요청)에는 null |
+
+앱은 부모 N-09·N-10·N-19 기록, 자녀 앱 기록, 리허설 증거 파일에 같은 trace_id를 찍는다. 통화 생성 응답을 받기 전에는 지시·안내가 생기지 않으므로 그 전 기록은 판정에 쓰지 않는다.
+
+확인 요청: A(부모 앱 기록·증거 내보내기), B(자녀 앱·통화 생성 응답 처리).

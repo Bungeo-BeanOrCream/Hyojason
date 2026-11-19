@@ -46,6 +46,12 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 도착: `SessionControl.submit_arrival` → N-22 검증·중복 제거 → N-11 `arrival.suspected/revoked`. 철회는 앞서 알린 arrival_id를 가리킨다.
    - N-11 내부 종료(동의 철회 `CONSENT_REVOKED`, 목표 없는 통화 종료 `NO_GOAL_AT_HANGUP`)도 N-11의 `help.purge` 효과로 N-23을 거쳐 `help.ended`를 보낸다. N-11은 `help.ended`를 직접 내지 않는다.
 
+6. **trace_id는 서버가 발급 — 결정(2026-11-19, 사용자).** 이슈 #5의 A 질문에 대한 답.
+   - 단위: 통화(call) 1회에 1개. 서버가 통화를 만들 때(`POST /v1/calls`, 통화별 `SessionControl` 생성 시점) 만들고, 같은 통화 안에서 help_id가 바뀌어도 유지한다.
+   - 앱은 받은 값을 그대로 쓰고 새로 만들지 않는다. 앱이 다른 값을 보내면 서버는 통화의 값으로 기록한다.
+   - 저장: DB 없이 서버 메모리의 통화 상태에만 두고 통화·도움 종료와 함께 정리한다. 상태는 계속 pair/call/help_id로 관리하며 trace_id는 기록을 묶는 꼬리표다.
+   - 남은 합의: 제어 이벤트 봉투에 `trace_id` 필드 추가 (A·B, [계약 추가 제안 6장](D-role-view-contract.md)). 서버 구현은 제어 서버와 함께 한다 — 지금 `SessionControl`은 명령마다 새 trace_id를 만든다.
+
 ## 다음 할 일
 
 1. **제어 서버(앱 연동의 전제, 아직 없음).** 웹 프레임워크를 정하고 다음을 만든다.
@@ -53,7 +59,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
    - 수신: `help.complete/stop` → `SessionControl.submit_command`, N-18 결과 → `submit_arrival`, 그 밖의 이벤트 → `SessionControl.apply`.
    - 송신: N-11 효과(`instruction.accepted/cleared`, `goal.updated`, `mode.changed`, `screen.reobserve`, `arrival.*`, `guide.suspend`, `observation.stop` 등)를 역할별로 보내는 경로. 지금은 계산만 되고 보내는 곳이 없다(`help.ended`만 EventSink로 나감).
    - 상태가 바뀔 때마다 N-21 역할 화면을 다시 보내는 경로 (B-07 정책 1). 지금은 N-13 재접속 때만 쓰인다.
-2. **trace_id 발급 주체 결정** (이슈 #5, A 질문). 서버가 발급해 이벤트로 내려 줄지, 부모 앱이 만들어 쓸지 D가 정한다.
+2. **제어 이벤트 봉투에 `trace_id` 추가 합의** (이슈 #5, A·B). 발급은 서버로 결정됨(결정 메모 6). 합의되면 `docs/contracts.md` PR에 함께 넣고, 제어 서버 구현 때 통화 단위 trace_id를 발급·전달한다.
 3. [계약 추가 제안](D-role-view-contract.md)을 B·C와 확인 → `docs/contracts.md` 반영 (이슈 #2: A 동의, B·C 답변 대기).
 4. D → main PR. Codex가 D에서 고친 공유 문서(`docs/contracts.md` 한 줄, `docs/screen-observation-profile.md`, `docs/verification-plan.md` E09)는 이슈 #3 합의분이므로 A 리뷰를 받는다.
 5. 이슈 #3의 [확정 계약](../screen-observation-profile.md)을 A의 운영 프로필에 연결하고 AVD에서 확인.
@@ -71,7 +77,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 막힌 것
 
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
-- 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. A는 trace_id 발급 주체를 D가 정해 주길 기다린다.
+- 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
 - 이슈 #1 Android 골격 전: 클라이언트 쪽 N-13·N-23 처리의 실제 구현·검증 불가.
 - 두 AVD의 실제 통화·캡처·자산과 L40S 모델·비용 증거가 모이기 전까지 N-24·N-25의 라이브 결과는 `UNVERIFIED`.
