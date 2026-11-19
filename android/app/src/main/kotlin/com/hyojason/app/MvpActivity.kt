@@ -17,6 +17,8 @@ class MvpActivity : HomeActivity() {
         assistance.draw(root, paired, inCall)
     }
 
+    override fun takeHelpCompletionNotice(): Boolean = assistance.takeCompletionNotice()
+
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
