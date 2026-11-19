@@ -117,8 +117,16 @@ class SessionHub:
         """역할당 연결 하나. 새로 붙으면 이전 연결 대신 새 연결로 보낸다."""
         conn = Connection(actor, queue, loop)
         with self._lock:
-            self._connections[(actor.pair_id, actor.role)] = conn
+            key = (actor.pair_id, actor.role)
+            previous = self._connections.get(key)
+            self._connections[key] = conn
+        if previous is not None:
+            self._put(previous, None)
         return conn
+
+    def is_current_connection(self, conn: Connection) -> bool:
+        with self._lock:
+            return self._connections.get((conn.actor.pair_id, conn.actor.role)) is conn
 
     def disconnect(self, conn: Connection) -> None:
         with self._lock:
@@ -141,7 +149,7 @@ class SessionHub:
         return True
 
     @staticmethod
-    def _put(conn: Connection, message: dict) -> None:
+    def _put(conn: Connection, message: dict | None) -> None:
         try:
             same_loop = asyncio.get_running_loop() is conn.loop
         except RuntimeError:
@@ -305,17 +313,34 @@ class SessionHub:
         return None
 
     def sync_consent(self, pair_id: str) -> None:
-        """B N-02의 역할별 분석 동의를 진행 중 통화의 N-11에 맞춘다. 같은 값이면 N-11이 무시한다.
+        """B N-02의 역할별 분석 동의를 N-11에 맞춘다. 통화 후 진행 중인 도움도 적용한다.
 
         MOCK 모드에는 consenting_roles가 없고, 앱이 WS consent.updated로 직접 보낸다.
         """
         roles_of = getattr(self._pairing, "consenting_roles", None)
         control = self.current_control(pair_id)
-        if roles_of is None or control is None or control.snapshot.call_state == "ENDED":
+        if roles_of is None or control is None:
+            return
+        snapshot = control.snapshot
+        if snapshot.call_state == "ENDED" and snapshot.help_state == "ENDED":
             return
         roles = roles_of(pair_id)
         for role in (Role.PARENT, Role.CHILD):
             self._apply(control, "consent.updated", role.value, {"purpose": "analysis", "enabled": role in roles})
+
+    def on_unpair(self, actor: ActorContext) -> None:
+        """B가 페어를 해제하면 통화 후 도움을 정리하고 두 기기의 제어 연결을 닫는다."""
+        other = Role.PARENT if actor.role is Role.CHILD else Role.CHILD
+        for control in self.controls_of(actor.pair_id):
+            for role in (actor.role, other):
+                if control.snapshot.help_state == "ENDED":
+                    break
+                self._apply(control, "consent.updated", role.value, {"purpose": "analysis", "enabled": False})
+        with self._lock:
+            connections = [self._connections.pop((actor.pair_id, role), None) for role in (actor.role, other)]
+        for conn in connections:
+            if conn is not None:
+                self._put(conn, None)
 
     # --- 수신 -----------------------------------------------------------------
     def handle_client(self, actor: ActorContext, message: object) -> dict:
@@ -337,6 +362,9 @@ class SessionHub:
                 resolution = control.submit_command(wire.COMMANDS[env["type"]], actor, env["help_id"])
                 node = resolution.completion
                 if resolution.update is not None:
+                    if (env["type"] == "help.stop" and self.voice_backed
+                            and resolution.update.state.status != "error"):
+                        self.voice.revoke_analysis(actor, control.snapshot.call_id)
                     self._dispatch(control, resolution.update)
                     if resolution.update.state.status == "error":
                         node = resolution.update.state

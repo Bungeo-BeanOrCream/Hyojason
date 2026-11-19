@@ -1,7 +1,7 @@
 """FastAPI 제어 서버 — docs/implementation-contract.md '제어 엔드포인트 제안'.
 
-HYOJASON_VOICE=service면 인증·페어·동의·통화를 B의 판단 함수(voice.BVoiceService, #10)가 맡고,
-기본(mock)은 고정 토큰과 D가 발급하는 통화(MOCK N-01~N-03)다. B 경로의 오류는 B 앱 모양({"detail": 코드}).
+기본 인증·페어·동의·통화는 B의 판단 함수(voice.BVoiceService, #10)가 맡는다.
+HYOJASON_VOICE=mock은 고정 토큰과 D가 발급하는 통화를 사용하는 개발용 모드다.
 
 | 경로 | 호출자 | 처리 |
 |---|---|---|
@@ -11,7 +11,8 @@ HYOJASON_VOICE=service면 인증·페어·동의·통화를 B의 판단 함수(v
 | POST /v1/calls/{call_id}/accept · /end | 건 쪽의 상대 · 참가자 | 수락·종료. mock은 수락하면 곧바로 call.connected |
 | GET /v1/calls/current | 페어 참가자 | 진행 중 통화 (B 앱 폴링·복구) |
 | POST /v1/calls/{call_id}/rtc-token | 페어 참가자 | B: LiveKit 토큰 / mock: null |
-| POST /v1/livekit/webhook · /v1/dev/... | LiveKit · 개발 | B 모드 전용 (참가·퇴장, 키 없이 참가·확정 발화) |
+| POST /v1/livekit/webhook | LiveKit | B 모드의 참가·퇴장 |
+| POST /v1/dev/... | 개발 | B 모드에서 HYOJASON_ENABLE_VOICE_DEV=1일 때만 모의 참가·확정 발화 허용 |
 | GET /v1/help/current | 페어 참가자 | N-13 재접속 조회 |
 | WS /v1/events | 페어 참가자 | 앱 이벤트 수신, N-11 효과·help.ended·help.view 송신 |
 | POST /v1/internal/calls/{call_id}/events | 서버 내부(B-02·C·N-03) | 서버 이벤트 적용 |
@@ -56,10 +57,11 @@ class ServerConfig:
     catalog: NavigationCatalog = field(default_factory=default_catalog)
     approved_slots: Mapping[str, Callable] = field(default_factory=lambda: dict(APPROVED_SLOTS))
     pairing: Any = field(default_factory=MockPairingService)
-    # B의 인증·페어·통화와 실제 기기가 붙기 전까지 결과는 FIXTURE다 (AGENTS.md)
+    # 외부 실행 증거가 확인되기 전의 기본 출처다 (AGENTS.md).
     source: Source = Source.FIXTURE
     # B-05 연결(agent_bridge.AgentBridge). None이면 C 판단 없이 동작한다.
     agent: Any = None
+    enable_voice_dev: bool = False
 
 
 def _bearer(value: str | None) -> str | None:
@@ -124,6 +126,8 @@ def create_app(config: ServerConfig) -> FastAPI:
             raise WireError("UNAUTHENTICATED")
         return actor
 
+    call_actor = voice_actor if hub.voice_backed else actor_of
+
     def service(token: str | None) -> None:
         if not token or token != config.service_token:
             raise WireError("UNAUTHENTICATED")
@@ -153,7 +157,10 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     @app.post("/v1/pairs/unpair")
     async def unpair(authorization: str | None = Header(default=None)):
-        voice().unpair(voice_actor(authorization))
+        service = voice()
+        actor = voice_actor(authorization)
+        service.unpair(actor)
+        hub.on_unpair(actor)
         return {"outcome": "unpaired"}
 
     # --- N-02 동의 (B) → N-11 -------------------------------------------------------
@@ -163,8 +170,9 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     @app.post("/v1/consent")
     async def set_consent(request: Request, authorization: str | None = Header(default=None)):
-        service, actor = voice(), voice_actor(authorization)
+        service = voice()
         body = await _json_body(request)
+        actor = voice_actor(authorization)
         caps, revision = body.get("device_capabilities", []), body.get("consent_revision")
         if (set(body) - {"call_id", "enabled", "consent_revision", "device_capabilities"}
                 or type(body.get("enabled")) is not bool or type(revision) is not int or revision < 0
@@ -180,8 +188,8 @@ def create_app(config: ServerConfig) -> FastAPI:
     # --- N-03 통화 ----------------------------------------------------------------
     @app.post("/v1/calls", status_code=201)
     async def create_call(request: Request, authorization: str | None = Header(default=None)):
-        actor = actor_of(authorization)
         body = await _json_body(request) if await request.body() else {}
+        actor = call_actor(authorization)
         if set(body) - {"assisted_role"} or body.get("assisted_role", "PARENT") not in ("PARENT", "CHILD"):
             raise WireError("INVALID_EVENT")
         control, result = hub.start_call(actor, Role(body.get("assisted_role", "PARENT")))
@@ -189,35 +197,41 @@ def create_app(config: ServerConfig) -> FastAPI:
 
     @app.post("/v1/calls/{call_id}/accept")
     async def accept_call(call_id: str, authorization: str | None = Header(default=None)):
-        control, result = hub.accept(actor_of(authorization), call_id)
+        control, result = hub.accept(call_actor(authorization), call_id)
         return call_body(control, result)
 
     @app.post("/v1/calls/{call_id}/end")
     async def end_call(call_id: str, authorization: str | None = Header(default=None)):
-        control, result = hub.end_call(actor_of(authorization), call_id)
+        control, result = hub.end_call(call_actor(authorization), call_id)
         return call_body(control, result)
 
     @app.get("/v1/calls/current")
     async def current_call(authorization: str | None = Header(default=None)):
-        return hub.current_call(actor_of(authorization))
+        return hub.current_call(call_actor(authorization))
 
     @app.post("/v1/calls/{call_id}/rtc-token")
     async def rtc_token(call_id: str, authorization: str | None = Header(default=None)):
-        return hub.rtc_token(actor_of(authorization), call_id)
+        return hub.rtc_token(call_actor(authorization), call_id)
 
     @app.post("/v1/livekit/webhook")
     async def livekit_webhook(request: Request, authorization: str | None = Header(default=None)):
         return voice().livekit_webhook((await request.body()).decode(), authorization)
 
     # --- dev (B): STT·LiveKit 키 없이 통합할 때 ------------------------------------------
+    def voice_dev():
+        if not config.enable_voice_dev:
+            raise WireError("NOT_FOUND")
+        return voice()
+
     @app.post("/v1/dev/calls/{call_id}/joined")
     async def dev_joined(call_id: str, authorization: str | None = Header(default=None)):
-        return _b_reply(voice().joined(voice_actor(authorization), call_id))
+        return _b_reply(voice_dev().joined(voice_actor(authorization), call_id))
 
     @app.post("/v1/dev/speech-final")
     async def dev_speech_final(request: Request, authorization: str | None = Header(default=None)):
-        service, actor = voice(), voice_actor(authorization)
+        service = voice_dev()
         body = await _json_body(request)
+        actor = voice_actor(authorization)
         call_id, text = body.get("call_id"), body.get("text")
         if (not isinstance(call_id, str) or not 0 < len(call_id) <= 128
                 or not isinstance(text, str) or not 0 < len(text) <= 500):
@@ -259,17 +273,26 @@ def create_app(config: ServerConfig) -> FastAPI:
             await ws.close(code=4401)
             return
         await ws.accept()
+        if config.authenticator.role_of(actor.pair_id, actor.user_id) != actor.role:
+            await ws.close(code=4401)
+            return
         queue: asyncio.Queue = asyncio.Queue()
         conn = hub.connect(actor, queue, asyncio.get_running_loop())
 
         async def pump():
             while True:
-                await ws.send_json(await queue.get())
+                message = await queue.get()
+                if message is None:
+                    await ws.close(code=4401)
+                    return
+                await ws.send_json(message)
 
         sender = asyncio.create_task(pump())
         try:
             while True:
                 text = await ws.receive_text()
+                if not hub.is_current_connection(conn):
+                    continue
                 try:
                     message = json.loads(text)
                 except json.JSONDecodeError:
@@ -308,12 +331,15 @@ async def _json_body(request: Request) -> dict:
 
 
 def agent_from_env(mode: str | None):
-    """HYOJASON_AGENT: off(기본) | fixture(MOCK Zoro-1) | zoro(ZORO_DECIDE_URL 등, server/agent/README.md).
+    """HYOJASON_AGENT: off | fixture(MOCK Zoro-1) | zoro(ZORO_DECIDE_URL 등, server/agent/README.md).
 
     C 코드(server.agent)를 import하므로 저장소 루트가 PYTHONPATH에 있어야 한다.
     모델 호출이 WS 이벤트 루프를 막지 않게 작업 스레드에서 돌린다.
     """
-    mode = (mode or "off").strip().lower()
+    mode = (mode or "").strip().lower()
+    if not mode:
+        configured = os.environ.get("ZORO_DECIDE_URL") or os.environ.get("ZORO_MODEL_REVISION")
+        mode = "zoro" if configured else "off"
     if mode == "off":
         return None
     if mode not in ("fixture", "zoro"):
@@ -328,11 +354,11 @@ def agent_from_env(mode: str | None):
 
 
 def voice_from_env(mode: str | None):
-    """HYOJASON_VOICE: mock(기본, 고정 토큰·D 발급 통화) | service(B의 hyojason_voice.service, #10).
+    """HYOJASON_VOICE: service(기본, B의 hyojason_voice.service) | mock(고정 토큰·D 발급 통화).
 
     service는 server/voice를 PYTHONPATH에 두고 B의 requirements(livekit-api 등)를 설치해야 한다.
     """
-    mode = (mode or "mock").strip().lower()
+    mode = (mode or "service").strip().lower()
     if mode == "mock":
         return None
     if mode != "service":
@@ -345,18 +371,17 @@ def voice_from_env(mode: str | None):
 
 
 def create_app_from_env() -> FastAPI:
-    """HYOJASON_SERVICE_TOKEN, HYOJASON_VOICE, HYOJASON_MOCK_TOKENS(mock일 때), HYOJASON_AGENT로 띄운다 (.env.example)."""
+    """B의 서비스로 기본 실행한다. 환경 설정은 .env.example을 참고한다."""
     service_token = os.environ.get("HYOJASON_SERVICE_TOKEN")
     if not service_token:
         raise RuntimeError("set HYOJASON_SERVICE_TOKEN (see server/session/.env.example)")
     agent = agent_from_env(os.environ.get("HYOJASON_AGENT"))
     voice = voice_from_env(os.environ.get("HYOJASON_VOICE"))
     if voice is not None:
-        # B 기기 토큰으로 인증하고, 통화·동의·페어는 B 함수가 판단한다. 결과 출처는 B의 실제 판단이다.
         return create_app(ServerConfig(authenticator=voice, pairing=voice, service_token=service_token,
-                                       agent=agent))
+                                       agent=agent, enable_voice_dev=os.environ.get("HYOJASON_ENABLE_VOICE_DEV") == "1"))
     tokens = os.environ.get("HYOJASON_MOCK_TOKENS")
     if not tokens:
-        raise RuntimeError("set HYOJASON_MOCK_TOKENS or HYOJASON_VOICE=service (see server/session/.env.example)")
+        raise RuntimeError("set HYOJASON_MOCK_TOKENS for HYOJASON_VOICE=mock (see server/session/.env.example)")
     return create_app(ServerConfig(authenticator=MockTokenAuthenticator.from_spec(tokens),
                                    service_token=service_token, agent=agent))

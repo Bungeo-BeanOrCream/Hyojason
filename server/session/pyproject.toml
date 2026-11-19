@@ -12,5 +12,5 @@ dev = ["pytest>=8", "httpx>=0.27", "fastapi>=0.110", "uvicorn[standard]>=0.29"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# 저장소 루트: B-05 연결(api/agent_bridge)이 C의 server.agent를 import한다
-pythonpath = [".", "../.."]
+# B-05(C)와 기본 음성 서비스(B)의 소스 경로
+pythonpath = [".", "../..", "../voice"]

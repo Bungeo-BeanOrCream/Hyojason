@@ -136,6 +136,13 @@ class BVoiceService:
         state = self._s.consents.get(pair_id)
         return {Role(_code(role)) for role, on in (state.enabled.items() if state else ()) if on}
 
+    def revoke_analysis(self, actor: ActorContext, call_id: str) -> None:
+        """안내 끄기를 B의 동의에도 반영해 다음 오디오와 확정 발화를 차단한다."""
+        state = self._s.consents.get(actor.pair_id)
+        if state is not None and state.enabled.get(actor.role, False):
+            capabilities = state.caps.get(actor.role, frozenset())
+            self._node(self._run(self._s.set_consent, actor, False, state.revision, capabilities, call_id))
+
     # --- dev ---------------------------------------------------------------------
     def dev_speech_final(self, actor: ActorContext, call_id: str, speaker_role: Role, text: str):
         return self._node(self._run(self._s.dev_speech_final, actor, call_id, speaker_role, text))

@@ -1,7 +1,7 @@
 """제어 서버 + B 음성 서비스 (#10: B는 판단 함수, D는 라우트·도움 세션 / #23: B가 call_id, D는 같은 ID로 등록).
 
-B의 hyojason_voice.service(PR #24)가 main에 오기 전이라, 같은 함수 이름·이벤트 모양을 가진 가짜 모듈(FakeVoice)로
-D 쪽 연결을 확인한다. 실제 B 코드와의 확인은 docs/work/D-status.md에 따로 기록한다. 결과는 FIXTURE.
+D의 이벤트 경계는 FakeVoice로 격리하고, 기본 실행과 페어 해제·동의는 실제 B 모듈로 검증한다.
+실기기나 외부 서비스에 접속하지 않으므로 결과는 FIXTURE다.
 """
 
 from __future__ import annotations
@@ -19,13 +19,13 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from hyojason_session.api.agent_bridge import AgentBridge  # noqa: E402
-from hyojason_session.api.app import ServerConfig, create_app, voice_from_env  # noqa: E402
+from hyojason_session.api.app import ServerConfig, create_app, create_app_from_env, voice_from_env  # noqa: E402
 from hyojason_session.api.voice import BVoiceService  # noqa: E402
 from hyojason_session.common.enums import Role  # noqa: E402
 from hyojason_session.common.types import ActorContext  # noqa: E402
 from hyojason_session.help_state import Event  # noqa: E402
 
-from test_control_server import CHILD_FORBIDDEN, collect, env, keys, of, send, types  # noqa: E402
+from test_control_server import CHILD_FORBIDDEN, collect, env, internal, keys, of, send, types  # noqa: E402
 
 PARENT_H = {"Authorization": "Bearer b-parent"}
 CHILD_H = {"Authorization": "Bearer b-child"}
@@ -167,7 +167,7 @@ def b():
     fake = FakeVoice()
     voice = BVoiceService(fake, Operation, Capability)
     app = create_app(ServerConfig(authenticator=voice, pairing=voice, service_token="svc",
-                                  agent=AgentBridge.with_fixture_model()))
+                                  agent=AgentBridge.with_fixture_model(), enable_voice_dev=True))
     with TestClient(app) as client:
         yield SimpleNamespace(client=client, fake=fake, hub=app.state.hub)
 
@@ -270,12 +270,107 @@ def test_register_call_is_idempotent_only_for_the_same_pair_and_trace(b):
     assert b.hub.on_voice_event("t", Event("call.accepted", "e", "pair-b", "nope", None, {"role": "CHILD"})) is None
 
 
-def test_mock_mode_has_no_b_routes_and_voice_mode_needs_b_code(monkeypatch):
+def test_mock_mode_has_no_b_routes():
     from hyojason_session.mocks import MockTokenAuthenticator
     app = create_app(ServerConfig(authenticator=MockTokenAuthenticator({}), service_token="svc"))
     with TestClient(app) as client:
         assert client.post("/v1/pairs/invite", json={"role": "PARENT"}).status_code == 404
         assert client.get("/v1/consent").status_code == 404
-    assert voice_from_env(None) is None and voice_from_env("mock") is None
+    assert voice_from_env("mock") is None
     with pytest.raises(RuntimeError):
         voice_from_env("other")
+
+
+@pytest.fixture
+def real_b(monkeypatch):
+    pytest.importorskip("livekit.api", reason="실제 B 검증에는 server/voice/requirements.txt 필요")
+    from hyojason_voice import service, worker
+
+    for key in (*worker.REQUIRED_ENV, "HYOJASON_VOICE", "HYOJASON_ENABLE_VOICE_DEV", "HYOJASON_MOCK_TOKENS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("HYOJASON_SERVICE_TOKEN", "service-token")
+    monkeypatch.setenv("HYOJASON_AGENT", "off")
+    for name in ("pairs", "calls", "tokens", "consents", "finalizers", "workers"):
+        monkeypatch.setattr(service, name, type(getattr(service, name))())
+    monkeypatch.setattr(service, "_sink", service._sink)
+    return service
+
+
+def real_pair(client):
+    invite = client.post("/v1/pairs/invite", json={"role": "PARENT"})
+    assert invite.status_code == 200, invite.text
+    claim = client.post("/v1/pairs/claim", json={"role": "CHILD", "invite_code": invite.json()["invite_code"]})
+    assert claim.json()["outcome"] == "paired", claim.text
+    return ({"Authorization": f"Bearer {invite.json()['token']}"},
+            {"Authorization": f"Bearer {claim.json()['token']}"}, invite.json()["pair_id"])
+
+
+def test_b01_1_default_uses_real_b_without_dev_injections(real_b):
+    app = create_app_from_env()
+    with TestClient(app) as client:
+        parent, child, _ = real_pair(client)
+        call = client.post("/v1/calls", headers=child).json()
+        cid = call["call_id"]
+        assert call["trace_id"] == real_b.calls.get(cid).trace_id
+        assert client.post(f"/v1/calls/{cid}/accept", headers=parent).json()["call_state"] == "RINGING"
+        assert client.post(f"/v1/calls/{cid}/rtc-token", headers=child).json() == {"detail": "DEPENDENCY_UNAVAILABLE"}
+        assert client.post(f"/v1/dev/calls/{cid}/joined", headers=parent).status_code == 404
+        assert client.post("/v1/dev/speech-final", headers=child).status_code == 404
+        assert client.post(f"/v1/calls/{cid}/end", headers=child).status_code == 200
+        assert client.get("/v1/consent", headers=parent).status_code == 200
+
+
+@pytest.mark.parametrize("termination", ["help-stop", "post-call-unpair", "post-call-revoke"])
+def test_b07_real_b_unpair_closes_roles_and_ends_help(real_b, monkeypatch, termination):
+    from starlette.websockets import WebSocketDisconnect
+
+    monkeypatch.setenv("HYOJASON_ENABLE_VOICE_DEV", "1")
+    app = create_app_from_env()
+    with TestClient(app) as client:
+        parent, child, pair_id = real_pair(client)
+        for headers in (parent, child):
+            revision = client.get("/v1/consent", headers=headers).json()["consent_revision"]
+            assert client.post("/v1/consent", headers=headers,
+                               json={"enabled": True, "consent_revision": revision}).status_code == 200
+        with client.websocket_connect("/v1/events", headers=parent) as pws, \
+                client.websocket_connect("/v1/events", headers=child) as cws:
+            call = client.post("/v1/calls", headers=parent).json()
+            cid = call["call_id"]
+            assert client.post(f"/v1/calls/{cid}/accept", headers=child).status_code == 200
+            for headers in (parent, child):
+                assert client.post(f"/v1/dev/calls/{cid}/joined", headers=headers).status_code == 200
+            assert real_b.calls.get(cid).state == "ACTIVE"
+            control = app.state.hub.control_for(cid)
+            if termination != "help-stop":
+                assert internal(client, cid, "speech.final", {
+                    "speaker_role": "CHILD", "utterance_id": "t1", "utterance_seq": 1,
+                    "text": "fixture-only utterance"}).status_code == 200
+                assert internal(client, cid, "goal.drafted", {
+                    "source_utterance_id": "t1", "goal_id": "SET_TIMEOUT",
+                    "approved_slots": {"duration_minutes": 10}}).status_code == 200
+                assert client.post(f"/v1/calls/{cid}/end", headers=child).status_code == 200
+                assert (control.snapshot.call_state, control.snapshot.mode) == ("ENDED", "POST_CALL_AGENT")
+                if termination == "post-call-revoke":
+                    revision = client.get("/v1/consent", headers=child).json()["consent_revision"]
+                    assert client.post("/v1/consent", headers=child,
+                                       json={"enabled": False, "consent_revision": revision}).status_code == 200
+                    assert control.snapshot.help_state == "ENDED"
+            else:
+                reply = send(pws, env("help.stop", cid, call["help_id"], {}, pair=pair_id))
+                assert of(reply, "event.ack")
+                assert client.get("/v1/consent", headers=child).json()["agent_allowed"] is False
+                assert real_b.calls.get(cid).state == "ACTIVE"
+                late = client.post("/v1/dev/speech-final", headers=child, json={
+                    "call_id": cid, "speaker_role": "CHILD", "text": "디스플레이 눌러 줘"})
+                assert late.json() == {"detail": "NO_CONSENT"}
+            collect(pws), collect(cws)
+            assert client.post("/v1/pairs/unpair", headers=child).status_code == 200
+            assert control.snapshot.help_state == "ENDED"
+            for ws in (pws, cws):
+                with pytest.raises(WebSocketDisconnect) as closed:
+                    while True:
+                        ws.receive_json()
+                assert closed.value.code == 4401
+        for headers in (parent, child):
+            stale = client.get("/v1/calls/current", headers=headers)
+            assert (stale.status_code, stale.json()) == (403, {"detail": "UNAUTHORIZED"})

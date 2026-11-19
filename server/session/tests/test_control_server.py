@@ -271,6 +271,7 @@ def test_ws_rejects_bad_token(client):
 
 
 def test_app_from_env_requires_settings(monkeypatch):
+    monkeypatch.setenv("HYOJASON_VOICE", "mock")
     monkeypatch.delenv("HYOJASON_MOCK_TOKENS", raising=False)
     monkeypatch.delenv("HYOJASON_SERVICE_TOKEN", raising=False)
     with pytest.raises(RuntimeError):

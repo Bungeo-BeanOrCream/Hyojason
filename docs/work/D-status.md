@@ -1,4 +1,4 @@
-현재 담당: Codex (N-24·N-25) · Claude Code (N-22·N-23, SessionControl 연동 2026-11-19 · B-05 연결·B 음성 서비스 연동 2026-11-20) · D 슬롯. N-11·N-12 변경은 커밋 902c36f~83c0187에 있다.
+현재 담당: Codex (B 음성 서비스 기본 전환·N-24·N-25, 2026-11-20) · Claude Code (N-22·N-23, SessionControl 연동 2026-11-19 · B-05 연결·B 음성 서비스 어댑터 2026-11-20) · D 슬롯. N-11·N-12 변경은 커밋 902c36f~83c0187에 있다.
 
 # D 작업 상태 (B-04 · B-07 · B-08 통합)
 
@@ -14,7 +14,7 @@
 | [N-23 purge_help_and_restart](../small-nodes/N-23.md) | 서버 로직 + 클라이언트 참조 구현 + N-11 `help.purge` 효과로 모든 종료에 연동, FIXTURE 테스트 통과. 실기기 UNVERIFIED | `tests/test_n23_purge_help_and_restart.py` (23.1~23.5 + 완료 기준), `test_session_completion.py` |
 | B-07 흐름 (N-22→N-11→N-23→N-13) | 실제 N-11(`SessionControl`) 위에서 확인. 제어 서버 경로로도 확인(`test_control_server.py`) | `tests/test_session_completion.py`, 격리판 `tests/test_b07_integration.py` (B07.1~B07.4) |
 | 제어 서버 (FastAPI, `hyojason_session/api`) | 뼈대 구현: `WS /v1/events`, `GET /v1/help/current`, 페어·통화 경로(MOCK), 서버 내부 경로. 실제 uvicorn으로 기동·WS 왕복 확인. 결과는 FIXTURE | `tests/test_control_server.py` |
-| B 음성 서비스 연동 (`api/voice.py`, #10) | `HYOJASON_VOICE=service`로 B의 판단 함수가 인증·페어·동의·통화를 맡고 D는 라우트·도움 세션(결정 메모 13). B 통화 ID로 도움 세션 등록, B 이벤트 수신, B 동의 → N-11 동기화, 양방향 발신. 가짜 B 모듈 테스트 + 실제 B 코드(origin/B `a5a1655`, PR #24)로 페어 → 동의 → 발신·수락·참가 → 확정 발화 → C → 부모 위치 표시 → 철회·종료까지 확인(LiveKit·STT 없이, FIXTURE) | `tests/test_control_server_voice.py` |
+| B 음성 서비스 연동 (`api/voice.py`, #10) | 기본 `service` 모드가 병합된 PR #24의 인증·페어·동의·통화를 호출한다. D는 B 통화 ID로 도움을 만들고 역할별 동의·종료를 동기화한다. 모의 참가·발화는 개발 옵션으로 활성화한다 | `tests/test_control_server_voice.py` |
 | B-05 연결 (D → C → D, `api/agent_bridge.py`) | C의 `B05Workflow`를 제어 서버에 연결(결정 메모 12). 발화 → 지시·목표 초안, 지시 → 대상 위치, 관찰 → 수행 판정·복귀·통화 후 안내, 도착 → N-22 → 자녀. 결과 이벤트는 지원 대상 기기에만. C 코드는 그대로, Zoro-1만 MOCK. FIXTURE 검증 | `tests/test_b05_bridge.py`, `test_control_server_agent.py` |
 | [N-24 prepare_demo_fixtures](../small-nodes/N-24.md) | 두 AVD 및 시나리오 준비 검사 구현(Codex). 실제 AVD 상태 수집·설정 기록/원복·AVD 생성 안내 도구(`demo_env`) 추가. 가짜 adb로만 검증, 실제 AVD 미확인 | `tests/test_n24_prepare_demo_fixtures.py`, `test_n24_demo_env.py` |
 | [N-25 evaluate_end_to_end](../small-nodes/N-25.md) | 지정 표본의 증거·출처·판정 및 모델·비용 보고 구현. FIXTURE 검증 | `tests/test_n25_evaluate_end_to_end.py` · [실행 방법](../../demo/fixtures/README.md) |
@@ -26,16 +26,15 @@
 | Mock | 대신하는 것 | 교체 시점 |
 |---|---|---|
 | 합성 통화·동의·발화, 화면 메타데이터, 지시·목표·위치·수행·완료 이벤트 | N-02·03·06·07·10·22의 인증·관찰·판정 결과. N-15·16·17·18·27·28은 B-05 연결 시험에서 C 실코드를 쓴다 | 각 생산 노드 연동 시 |
-| `api.agent_bridge.fixture_zoro` | N-14 Zoro-1 호출 (C·L40S). 질문의 첫 선택지(또는 지정 선택지)를 0.95로 고름 | 실제 모델 경로는 준비됨: `HYOJASON_AGENT=zoro` + `ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION`. L40S 접속 값(#23, SSH 터널)을 받으면 `tests/test_b05_zoro.py` 실제 모델 테스트로 확인 |
-| speech.final 내부 경로 주입 | B-02 확정 발화 (B). `POST /v1/internal/calls/{id}/events`로 넣는다(#14 다음 계획 3) | B 음성 서버가 같은 경로로 보내면 교체 |
+| `api.agent_bridge.fixture_zoro` | `HYOJASON_AGENT=fixture`에서 쓰는 N-14 Zoro-1 대역 | 기본 실행은 `ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION` 설정이 있으면 실제 모델을 선택한다. L40S가 연결된 환경에서 `tests/test_b05_zoro.py`로 확인 |
+| speech.final·참가 주입 | STT·LiveKit을 생략하는 개발용 입력 | 기본 실행은 B의 확정 발화와 실제 참가 이벤트를 받는다. B의 `/v1/dev/...` 주입은 `HYOJASON_ENABLE_VOICE_DEV=1`에서만 허용 |
 | `mocks.InMemoryHelpStore` | N-13·N-23 격리 단위 테스트의 N-11 상태 (실제 N-11은 `control.SessionControl`) | 격리 테스트 전용으로 유지 |
 | `mocks.ScopedBuffer(NAVIGATION_TRAIL)` | 격리 테스트의 N-12 이력. 실제 경로는 `control._TrailPurge` | 격리 테스트 전용 |
 | `mocks.ScopedBuffer(INFERENCE_RESULTS)` / `control._NoDataHeld` | B-05 판단 결과 (C). B-05 연결을 켜면 실제 저장소 `agent_bridge.InferenceResults`가 들어가 N-23이 도움 종료 때 지운다. 끄면 빈 자리 | 격리 테스트·연결 끔 상태 전용 |
 | `mocks.ScopedBuffer(PENDING_UTTERANCES)` / `control._NoDataHeld` | B-02 대기 확정 발화 (B). 실제 경로는 빈 자리 | B의 발화 큐가 서버에 생기면 `result_stores`로 연결 |
 | `mocks.RecordingEventSink` | WS /v1/events 제어 채널 (D). `SessionControl(events=...)`로 주입, 없으면 전달 실패로 기록 | 제어 엔드포인트 구현 시 |
 | `mocks.StaticPairDirectory` | N-01 resolve_pair 페어 승인 (B), N-13 격리 테스트 | B의 N-01 연동 시 |
-| `mocks.MockPairingService` | N-01 페어 승인·N-03 통화 수락 시 RTC 연결 확인·LiveKit 토큰(null) (B) | B 연결은 준비됨: `HYOJASON_VOICE=service`(`api.voice.BVoiceService`). B PR #24가 main에 오면 그 모드를 기본으로 |
-| `mocks.MockTokenAuthenticator` | B-01 인증 토큰 검증 (B). 고정 가짜 토큰 → 역할·페어 | B 모드에서는 B 기기 토큰(`BVoiceService.authenticate`)으로 바뀜 |
+| `mocks.MockPairingService`, `mocks.MockTokenAuthenticator` | 고정 테스트 토큰, 모의 페어·통화 | `HYOJASON_VOICE=mock` 개발 모드에서 사용 |
 | `client_resume_gate.py`, `client_cleanup.py` (Python) | 부모·자녀 앱의 재접속·종료 처리 (A·B, Kotlin) | `android/contract` 골격(이슈 #1) 뒤 A·B가 이식 |
 | `manifest.fixture.json`, `evidence.fixture.json` | AVD·앱·권한·연결 점검과 소수 합성 실행 기록 | A·B·C의 실측 증거 수집 후 `LIVE`로 별도 평가 |
 
@@ -80,7 +79,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 ## 다음 할 일
 
 1. **제어 서버 — 뼈대 완료, 남은 연결.** FastAPI 뼈대(결정 메모 7)에 수신·송신 경로와 N-21 화면 재전송까지 들어갔다. 남은 것:
-   - 이슈 #10: B 연결 모드(`HYOJASON_VOICE=service`) 완료. B PR #24가 main에 들어오면 실제 B 코드 테스트를 저장소에 추가하고 기본 모드를 바꾼다. 역할별 동의는 B 공개 함수에 없어 `consents[pair].enabled`를 읽는다 — B에 공개 함수를 요청한다.
+   - 이슈 #10의 기본 B 연동은 실제 B 코드로 회귀 시험한다. 역할별 동의 공개 함수와 안내 중단 직후 열려 있는 STT 스트림 종료는 B와 확인한다.
    - 봉투 `trace_id` 합의(아래 2) 뒤 송신 이벤트에 싣기. 지금 trace_id는 `POST /v1/calls` 응답과 서버 내부 결과에만 있다.
    - A·B 앱이 WS에 붙어 실제 메시지로 확인 (지금은 테스트 클라이언트·uvicorn 스모크뿐).
    - B-05 연결(결정 메모 12)은 끝났다(FIXTURE). 실제 Zoro-1은 `HYOJASON_AGENT=zoro`로 켠다. 접속 값이 없으면 서버가 뜨지 않고, 모델 접속 실패·마감 초과 때는 지시만 가고 위치 근거는 보내지 않는다(`tests/test_b05_zoro.py`). D 환경에서 실제 L40S 호출은 아직 못 했다(UNVERIFIED). 위험 동작 문구(`B05Output.warning`)를 부모에게 보내는 이벤트는 계약에 없어 아직 보내지 않는다 — contracts PR에서 정한다.
@@ -107,7 +106,7 @@ N-22 장부(`completion.CompletionLedger`)와 N-23 종료 기록(`purge.Tombston
 - 이슈 #2: B(ChildView)·C(HelpSnapshot 추가 필드) 답변 대기.
 - 시연용 팀 Mac의 담당자·기종(Apple Silicon 여부)이 아직 확인되지 않음. 확인되면 그 Mac에서 `setup_avd_mac.sh` 실행.
 - 이슈 #6: 지원 대상 방식·완료 권한·자녀 발신·Basis는 팀 합의 대기 (A·B는 의견 남김, C 대기).
-- 이슈 #10: B가 `service.py`(PR #24, B 브랜치)로 판단 함수를 모았고 D는 B 모드로 연결했다. PR #24가 main에 머지되기 전까지 저장소 테스트는 가짜 B 모듈로 하고, 실제 B 코드 확인은 B 브랜치를 꺼내 따로 했다(livekit은 import만 대신). #10 답변은 아직 안 올림.
+- 이슈 #10의 LiveKit·RTZR 양쪽 기기 검증은 팀 서비스 설정과 두 AVD가 필요하다. 실제 B 모듈을 쓰는 자동 회귀 시험은 외부 서비스에 접속하지 않으므로 FIXTURE로 기록한다.
 - 이슈 #5: A는 AVD 실측 전이고 B·C 증거 위치 답변 대기. trace_id는 서버 발급으로 답함 — 봉투 필드 추가는 A·B 확인 대기.
 - 이슈 #3의 실제 앱별 프로필과 screen_revision 규칙은 AVD에서 확인해야 한다.
 - **C의 통합 백엔드**: #23에서 C가 D의 `agent_bridge`로 일원화하고 `server.mvp`는 앱 조립만 맡기기로 했다. C의 통합 사본 Android는 `assist.decision`을 기다리므로 `target.located` 등 4종으로 맞추기로 함(payload는 [계약 제안 7장](D-role-view-contract.md)). B call_id 404는 결정 메모 13의 `register_call`로 해결.

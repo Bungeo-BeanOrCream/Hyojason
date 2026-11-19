@@ -16,58 +16,56 @@ Python 3.11 이상. 노드 로직은 표준 라이브러리만 쓰고, 제어 �
 
 ### 제어 서버 실행
 
+기본 실행은 B의 인증·가족 연결·동의·통화 서비스를 사용한다. LiveKit과 RTZR을 사용하려면 [B 실행 환경](../voice/README.md)의 설정을 추가한다.
+
 ```bash
 cd server/session
-# .env.example의 가짜 값을 환경 변수로 넣는다 (실제 계정·토큰 금지)
-export HYOJASON_MOCK_TOKENS="parent-dev-token=parent-dev:pair-dev:PARENT;child-dev-token=child-dev:pair-dev:CHILD"
+python -m pip install -r ../voice/requirements.txt
+# 격리된 로컬 예시. 운영 설정은 실행 환경에서 안전한 값으로 주입한다.
 export HYOJASON_SERVICE_TOKEN="service-dev-token"
-uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
+PYTHONPATH=../..:../voice python -m uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 ```
+
+PowerShell에서는 `PYTHONPATH`를 `$env:PYTHONPATH = '../..;../voice'`로 설정한다.
 
 | 경로 | 호출자 | 처리 |
 |---|---|---|
-| `POST /v1/pairs/claim` | 두 역할 | **MOCK** N-01 페어 승인 |
-| `POST /v1/calls` | 부모 | 통화 생성(body `assisted_role` 선택, 기본 PARENT), 첫 도움의 `trace_id` 발급, 자녀에게 `call.invite` |
-| `POST /v1/calls/{call_id}/accept` | 자녀 | 수락. **MOCK** N-03이 곧바로 `call.connected` |
-| `POST /v1/calls/{call_id}/rtc-token` | 페어 참가자 | **MOCK**: 토큰 없음(null) |
+| `POST /v1/pairs/invite`, `/claim`, `/unpair` | 두 역할 | N-01 가족 연결 코드 발급·입력·해제 |
+| `POST /v1/calls` | 두 역할 | 통화 생성(body `assisted_role` 선택, 기본 PARENT), 첫 도움의 `trace_id` 발급, 상대에게 `call.invite` |
+| `POST /v1/calls/{call_id}/accept` | 발신자의 상대 | 수락. B는 양쪽 참가 확인 뒤 `call.connected`를 보낸다 |
+| `POST /v1/calls/{call_id}/rtc-token` | 페어 참가자 | B가 발급한 LiveKit 토큰 |
 | `GET /v1/help/current` | 페어 참가자 | N-13 재접속 조회 |
 | `WS /v1/events` | 페어 참가자 | 앱 이벤트 수신, N-11 효과·`help.ended`·`help.view` 송신 |
 | `POST /v1/internal/calls/{call_id}/events` | 서버 내부(B-02·C·N-03, B의 새 코드 승인 `help.link_approved`) | 서버 이벤트 적용 (`X-Service-Token`) |
 | `POST /v1/internal/calls/{call_id}/arrivals` | 서버 내부(C의 N-18) | 도착 추정 → N-22 (`X-Service-Token`) |
 
-앱 인증은 `Authorization: Bearer <token>`(**MOCK** B-01). WS 메시지 형식은 [계약 추가 제안 7장](../../docs/work/D-role-view-contract.md).
+앱은 B가 발급한 기기 토큰을 `Authorization: Bearer <token>`으로 보낸다. WS 메시지 형식은 [계약 추가 제안 7장](../../docs/work/D-role-view-contract.md).
 
 ### B 음성 서비스 연결 (#10)
 
-`HYOJASON_VOICE=service`면 B의 판단 함수(`server/voice`의 `hyojason_voice.service`, PR #24)가 인증·페어·동의·통화를 맡고, D는 라우트와 도움 세션을 맡는다.
-
-```bash
-cd server/session
-PYTHONPATH=../..:../voice HYOJASON_VOICE=service HYOJASON_AGENT=fixture \
-  uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
-```
+기본값 `HYOJASON_VOICE=service`는 B의 `hyojason_voice.service`(PR #24)를 사용한다. 격리 개발 환경에서는 `HYOJASON_VOICE=mock`과 `.env.example`의 테스트 토큰을 명시할 수 있다.
 
 - 통화 ID는 B가 만든다. B가 `call.invite`를 보내면 D가 같은 `call_id`·`trace_id`로 도움 세션을 등록하고(`SessionHub.register_call`), 이후 `call.accepted/connected/ended`·`speech.final`을 같은 통화에 적용한다(`on_voice_event`).
-- 동의는 앱이 `POST /v1/consent`(B N-02)로 보내고, D가 진행 중 통화의 N-11에 맞춘다. 이 모드에서는 WS `consent.updated`를 받지 않는다.
-- 발신은 부모·자녀 모두, 수락은 건 쪽의 상대만 한다(#6·#10). 수락만으로는 연결이 아니고, 양쪽이 LiveKit 방에 들어오면 B가 `call.connected`를 낸다(키 없이 시험할 때 `POST /v1/dev/calls/{id}/joined`).
-- B 경로(페어·동의·dev)의 오류는 B 앱이 쓰던 `{"detail": 코드}`와 같은 HTTP 상태다.
+- 동의는 `POST /v1/consent`(B N-02)로 받고 통화 후 도움에도 반영한다. `help.stop`은 B 분석 동의까지 철회한다. 가족 연결 해제는 남아 있는 도움을 종료하고 두 기기의 WS를 닫는다.
+- 양쪽 LiveKit 참가 시 `call.connected`를 받는다. 모의 참가·발화 경로(`/v1/dev/...`)는 격리 개발 환경에서 `HYOJASON_ENABLE_VOICE_DEV=1`로 켠다.
+- B 경로(페어·동의·통화)의 인증 오류는 B 앱이 쓰는 `403 {"detail": "UNAUTHORIZED"}`다.
 
 ### B-05(C 판단) 연결
 
-`HYOJASON_AGENT`로 켠다. C 코드(`server/agent`)를 import하므로 저장소 루트를 `PYTHONPATH`에 넣는다.
+`HYOJASON_AGENT`가 비어 있으면 Zoro URL·리비전 설정을 사용해 실제 모델을 연결한다. 둘 다 없으면 판단 없이 실행하고, 일부만 입력하면 시작할 때 누락을 알린다. C 코드(`server/agent`)를 import하므로 저장소 루트를 `PYTHONPATH`에 넣는다.
 
 ```bash
 cd server/session
-PYTHONPATH=../.. HYOJASON_AGENT=fixture uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
+PYTHONPATH=../..:../voice HYOJASON_AGENT=fixture python -m uvicorn hyojason_session.api.app:create_app_from_env --factory --port 8000
 ```
 
 | 값 | 동작 |
 |---|---|
-| `off` (기본) | C 판단 없이 앱·내부 이벤트만 처리 |
+| `off` | C 판단 없이 앱·내부 이벤트만 처리 |
 | `fixture` | C의 `B05Workflow`를 그대로 쓰고 Zoro-1만 **MOCK**(질문의 첫 선택지를 0.95로 고름). 결과는 FIXTURE |
 | `zoro` | L40S의 실제 Zoro-1 (#23). `ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION` 필수, 서빙 프록시가 요구하면 `ZORO_DECIDE_TOKEN`. 값이 없으면 서버가 뜨지 않는다 ([server/agent](../agent/README.md)) |
 
-B-02가 붙기 전에는 내부 경로로 자녀 발화를 넣는다: `POST /v1/internal/calls/{call_id}/events`, body `{"type": "speech.final", "payload": {"speaker_role": "CHILD", "utterance_id": "t1", "utterance_seq": 1, "text": "..."}}`.
+B 서비스는 RTZR 확정 발화를 D로 전달한다. 격리 시험에서는 `POST /v1/internal/calls/{call_id}/events`에도 합성 발화를 보낼 수 있다.
 그러면 N-11 → C → N-11 순서로 지시(`instruction.accepted`)·목표(`goal.updated`)·대상 위치(`target.located`)가 부모 WS로 간다.
 화면 관찰 뒤에는 `action.assessed`·`recovery.ready`·`guide.proposed`가 부모에게 가고, 도착 추정은 N-22를 거쳐 자녀에게 `arrival.suspected`로 간다.
 결과 이벤트는 지원 대상 기기에만 간다. 흐름과 규칙은 [결정 메모 12](../../docs/work/D-status.md), 코드는 `hyojason_session/api/agent_bridge.py`.

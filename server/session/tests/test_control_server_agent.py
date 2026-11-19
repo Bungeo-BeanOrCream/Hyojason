@@ -62,13 +62,24 @@ def test_injected_child_speech_reaches_parent_as_instruction_goal_and_location(s
     assert [run.event for run in agent.results.of(help_id)][-2:] == ["speech.final", "instruction.accepted"]
 
 
-def test_agent_mode_from_environment():
+def test_agent_mode_from_environment(monkeypatch):
+    monkeypatch.delenv("ZORO_DECIDE_URL", raising=False)
+    monkeypatch.delenv("ZORO_MODEL_REVISION", raising=False)
     assert agent_from_env(None) is None and agent_from_env("off") is None
     fixture = agent_from_env("fixture")
     assert isinstance(fixture, AgentBridge)
     fixture.close()
     with pytest.raises(RuntimeError):
         agent_from_env("gpt")
+
+    monkeypatch.setenv("ZORO_DECIDE_URL", "http://127.0.0.1:9/v1/decide")
+    with pytest.raises(RuntimeError, match="ZORO_MODEL_REVISION"):
+        agent_from_env(None)
+    monkeypatch.setenv("ZORO_MODEL_REVISION", "test-revision")
+    assert agent_from_env("off") is None
+    real = agent_from_env(None)
+    assert isinstance(real, AgentBridge)
+    real.close()
 
 
 def test_server_without_agent_keeps_c_out_of_the_loop():
