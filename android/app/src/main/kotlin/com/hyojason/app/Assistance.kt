@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.IBinder
 import android.os.SystemClock
@@ -53,6 +54,7 @@ import com.hyojason.app.overlay.gate.TargetLocation
 import com.hyojason.app.overlay.gate.Verdict
 import com.hyojason.app.overlay.gate.VerifiedRecovery
 import com.hyojason.app.overlay.surface.AndroidSurfaceHost
+import com.hyojason.app.overlay.surface.GuideAccessibilityService
 import com.hyojason.app.overlay.surface.SurfaceUserEvent
 import com.hyojason.app.rtc.serverRequest
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +146,7 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
     private var displayed: LocalGuide? = null
     private var renderBasis: Basis? = null
     private var renderOfferId: String? = null
+    private var renderOnAccessibility = false
     private val settingsNotice = SettingsGuidanceNotification(activity)
     private var lastSettingsNotice: Pair<Basis, String>? = null
     private var settingsNoticeActive = false
@@ -388,6 +391,11 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
                 .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
             return
         }
+        if (!Settings.canDrawOverlays(activity) && !GuideAccessibilityService.connected) {
+            status?.text = "누를 곳을 표시하려면 효자손이 다른 앱 위에 표시되도록 허용해 주세요."
+            activity.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${activity.packageName}")))
+            return
+        }
         approvalBasis = basis
         @Suppress("DEPRECATION")
         activity.startActivityForResult(ProjectionCaptureService.approvalIntent(activity, wholeDisplay = true), CAPTURE_REQUEST)
@@ -525,8 +533,10 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             if (settingsNoticeActive && keepSettingsNoticeOn(gateError, observation.screen.observation_health)) return
             return clearOverlay("gate_${gateError ?: gate.outcome}")
         }
-        // The supported Android Settings screen hides third-party overlay windows.
-        if (observation.screen.screen_kind.startsWith("settings_")) {
+        // The supported Android Settings screen hides third-party overlay windows. The draw-only
+        // accessibility overlay (#37) is not hidden, so the border is used there when it is on.
+        val accessibilitySurface = GuideAccessibilityService.connected
+        if (observation.screen.screen_kind.startsWith("settings_") && !accessibilitySurface) {
             val targetId = if (mode == HelpMode.CALL_CHILD_LED) target?.value?.targetId else proposal?.value?.targetId
             val message = settingsGuidanceText(next, targetId) ?: return clearOverlay("no_allowed_text")
             if (displayed != null) clearOverlay("settings_screen")
@@ -538,14 +548,16 @@ internal class Assistance(private val activity: MvpActivity) : AutoCloseable {
             }
             return
         }
-        clearSettingsNotice("non_settings_screen")
-        if (!Settings.canDrawOverlays(activity)) return clearOverlay("no_overlay_permission")
-        if (displayed == next && renderBasis == basis && renderOfferId == offerId) return
+        clearSettingsNotice(if (accessibilitySurface) "accessibility_surface" else "non_settings_screen")
+        if (!(Settings.canDrawOverlays(activity) || accessibilitySurface)) return clearOverlay("no_overlay_permission")
+        if (displayed == next && renderBasis == basis && renderOfferId == offerId &&
+            renderOnAccessibility == accessibilitySurface) return
         val shown = ParentGuideFlow.run(input, diagnostic, host, true).data
         if (shown?.rendered == true) {
             displayed = next
             renderBasis = basis
             renderOfferId = offerId
+            renderOnAccessibility = accessibilitySurface
             send("guide.shown", JSONObject().put("mode", mode.name).put("decision_id", offerId))
         }
     }

@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.hardware.input.InputManager
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -14,8 +15,12 @@ import android.widget.TextView
 import com.hyojason.app.observer.LocalRect
 
 /**
- * Narrow TYPE_APPLICATION_OVERLAY windows. The border never takes touches; only the two banner
- * buttons do. Touch pass-through must still be confirmed on the demo device (N-20 completion).
+ * Narrow overlay windows. The border never takes touches; only the two banner buttons do. Touch
+ * pass-through must still be confirmed on the demo device (N-20 completion).
+ *
+ * #37 prototype: while [GuideAccessibilityService] is enabled, windows go through its
+ * WindowManager as TYPE_ACCESSIBILITY_OVERLAY so the Settings app does not hide them. Otherwise
+ * TYPE_APPLICATION_OVERLAY as before. Each view is removed through the manager that added it.
  */
 class AndroidSurfaceHost(
     context: Context,
@@ -24,13 +29,18 @@ class AndroidSurfaceHost(
     private val context = context.applicationContext
     private val windows = this.context.getSystemService(WindowManager::class.java)
     private val maxAlpha = this.context.getSystemService(InputManager::class.java).maximumObscuringOpacityForTouch
-    private var border: View? = null
-    private var banner: View? = null
+    private var border: Pair<View, WindowManager>? = null
+    private var banner: Pair<View, WindowManager>? = null
+
+    /** The manager and window type to use now. */
+    private fun target(): Pair<WindowManager, Int> = GuideAccessibilityService.overlayWindows
+        ?.let { it to WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY }
+        ?: (windows to WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
 
     private fun dp(value: Int) = (value * context.resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun params(width: Int, height: Int, touchable: Boolean) = WindowManager.LayoutParams(
-        width, height, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+    private fun params(width: Int, height: Int, touchable: Boolean, type: Int) = WindowManager.LayoutParams(
+        width, height, type,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
         PixelFormat.TRANSLUCENT,
@@ -39,19 +49,24 @@ class AndroidSurfaceHost(
         alpha = minOf(0.8f, maxAlpha)
     }
 
-    private fun add(view: View, params: WindowManager.LayoutParams): Boolean = try {
-        windows.addView(view, params)
-        true
-    } catch (_: WindowManager.BadTokenException) {
-        false
-    } catch (_: SecurityException) {
-        false
+    private fun add(view: View, manager: WindowManager, params: WindowManager.LayoutParams): Boolean {
+        val added = try {
+            manager.addView(view, params)
+            true
+        } catch (_: WindowManager.BadTokenException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+        val kind = if (params.type == WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY) "accessibility" else "application"
+        Log.i("HyojasonSurface", "surface=$kind shown=$added")
+        return added
     }
 
-    private fun remove(view: View?) {
-        if (view == null) return
+    private fun remove(window: Pair<View, WindowManager>?) {
+        val (view, manager) = window ?: return
         try {
-            windows.removeViewImmediate(view)
+            manager.removeViewImmediate(view)
         } catch (_: IllegalArgumentException) {
             // Already removed, e.g. after the permission was revoked.
         }
@@ -66,11 +81,12 @@ class AndroidSurfaceHost(
                 cornerRadius = dp(8).toFloat()
             }
         }
-        val p = params(rect.right - rect.left, rect.bottom - rect.top, touchable = false).apply {
+        val (manager, type) = target()
+        val p = params(rect.right - rect.left, rect.bottom - rect.top, touchable = false, type).apply {
             x = rect.left; y = rect.top
         }
-        if (!add(view, p)) return false
-        border = view
+        if (!add(view, manager, p)) return false
+        border = view to manager
         return true
     }
 
@@ -95,10 +111,11 @@ class AndroidSurfaceHost(
                 setOnClickListener { onUserEvent(SurfaceUserEvent.RETURN_TO_CALL) }
             })
         }
-        if (!add(row, params(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, touchable = true))) {
+        val (manager, type) = target()
+        if (!add(row, manager, params(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT, touchable = true, type))) {
             return false
         }
-        banner = row
+        banner = row to manager
         return true
     }
 
