@@ -5,7 +5,7 @@ from dataclasses import asdict
 from itertools import count
 from unittest import TestCase
 
-from hyojason_session.common.enums import Role, Source
+from hyojason_session.common.enums import HelpCommand, Role, Source
 from hyojason_session.common.result import Basis
 from hyojason_session.common.serialize import to_jsonable
 from hyojason_session.common.types import ActorContext, snapshot_problems
@@ -51,6 +51,14 @@ class SessionFlow(TestCase):
             screen_kind=kind, target_ids=["settings.display"], evidence_codes=evidence_codes,
             observation_health="ACTIVE", **extra,
         )
+
+    def complete(self):
+        """자녀 완료: N-22 승인 → N-11 help.end → N-23 (결정 메모 5 (가))."""
+        child = ActorContext("child", "pair", Role.CHILD)
+        resolution = self.control.submit_command(HelpCommand.COMPLETE, child, self.control.snapshot.help_id)
+        self.assertEqual(resolution.completion.outcome, "end_requested", resolution.completion.diagnostics)
+        self.assertEqual(resolution.update.state.status, "success", resolution.update.state.diagnostics)
+        return resolution
 
     def turn(self, seq):
         self.emit("speech.final", speaker_role="CHILD", utterance_id=f"turn{seq}", utterance_seq=seq,
@@ -108,7 +116,7 @@ class SessionFlow(TestCase):
                          ("help", "POST_CALL_AGENT"))
         self.assertIsNone(ended_call.navigation)
         self.assertEqual(len(self.control.trail.directives), 1)
-        self.emit("help.complete", "CHILD")
+        self.complete()
         self.assertEqual(self.control.trail.records, ())
         self.assertIsNone(self.control.trail.anchor)
 
@@ -215,6 +223,6 @@ class SessionFlow(TestCase):
         self.assertTrue(reconnect().must_reobserve)
         self.emit("screen.observed", "PARENT", projection_epoch="capture", observation_health="STOPPED")
         self.assertFalse(reconnect().must_reobserve)
-        self.emit("help.complete", "CHILD")
+        self.complete()
         self.assertEqual(reconnect().resume_state, "ENDED")
         self.assertEqual(self.control.get_tombstone("help").end_reason, "CHILD_COMPLETED")

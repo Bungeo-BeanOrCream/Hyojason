@@ -74,6 +74,7 @@ def test_22_1_invalidated_evidence_revokes_notice(ledger):
     run_arrival(ledger, snap, arrival(snap))
     r = run_arrival(ledger, snap, arrival(snap, arrival_id="arr-2", arrived=False))
     assert (r.outcome, r.data.announcement) == ("arrival_announced", ArrivalState.REVOKED)
+    assert r.data.arrival_id == "arr-1"  # 철회는 앞서 알린 도착을 가리킨다
     assert ledger.arrival_state_for(snap) is ArrivalState.REVOKED
     again = run_arrival(ledger, snap, arrival(snap, arrival_id="arr-3"))  # 다시 도착하면 다시 알림
     assert again.data.announcement is ArrivalState.SUSPECTED

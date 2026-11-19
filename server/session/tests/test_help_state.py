@@ -128,15 +128,18 @@ class ReducerTests(TestCase):
         self.draft(1, "goal")
         basis = self.basis
         self.send("call.ended")
-        complete = self.send("help.complete", "CHILD", basis=basis, event_id="done")
+        complete = self.send("help.end", basis=basis, event_id="done", reason="CHILD_COMPLETED")
         self.assertIn("trail.clear", self.effects(complete))
+        self.assertIn("help.purge", self.effects(complete))  # help.ended는 N-23이 보낸다
+        self.assertNotIn("help.ended", self.effects(complete))
         self.assertIsNone(complete.data.snapshot.goal)
-        self.assertEqual(self.send("help.complete", "CHILD", basis=basis, event_id="done").outcome, "duplicate_ignored")
-        self.reject("ALREADY_ENDED", "help.complete", "CHILD")
+        self.assertEqual(self.send("help.end", basis=basis, event_id="done", reason="CHILD_COMPLETED").outcome,
+                         "duplicate_ignored")
+        self.reject("ALREADY_ENDED", "help.end", reason="CHILD_COMPLETED")
         self.setUp()
         self.speech(1)
         self.draft(1, "goal")
-        self.send("help.complete", "CHILD")
+        self.send("help.end", reason="CHILD_COMPLETED")
         ended = self.send("call.ended")
         self.assertEqual(ended.data.snapshot.help_state, "ENDED")
         self.assertNotIn("screen.reobserve", self.effects(ended))
@@ -145,7 +148,7 @@ class ReducerTests(TestCase):
         self.speech(1)
         self.draft(1, "goal")
         before_completion = self.basis
-        self.send("help.complete", "CHILD")
+        self.send("help.end", reason="CHILD_COMPLETED")
         self.reject("STALE_BASIS", "speech.final", basis=before_completion,
                     speaker_role="CHILD", utterance_id="delayed", utterance_seq=2)
         self.speech(2)
@@ -157,7 +160,7 @@ class ReducerTests(TestCase):
         self.assertEqual(self.draft(2, basis=opening, event_id="open").outcome, "duplicate_ignored")
         self.draft(2, "goal", basis=opening)
         self.assertEqual((self.basis.goal_revision, self.basis.instruction_revision), (1, 1))
-        self.reject("STALE_BASIS", "help.complete", "CHILD", basis=opening)
+        self.reject("STALE_BASIS", "help.end", basis=opening, reason="CHILD_COMPLETED")
         self.reject("UNAUTHORIZED", "call.ended", basis=replace(opening, call_id="foreign"))
         ended = self.send("call.ended", basis=before_completion)
         self.assertEqual(ended.outcome, "call_ended_help_active")
@@ -176,7 +179,7 @@ class ReducerTests(TestCase):
         self.assertIs(projected.help_state, HelpState.ACTIVE)
         self.assertEqual(to_jsonable(projected)["goal"]["approved_slots"], {"steps": "1"})
         self.assertNotIn("utterance_seq", to_jsonable(projected))
-        self.send("help.complete", "CHILD")
+        self.send("help.end", reason="CHILD_COMPLETED")
         self.send("consent.updated", "CHILD", purpose="analysis", enabled=False)
         ended = self.session.snapshot.to_shared_snapshot()
         self.assertEqual(snapshot_problems(ended), [])
@@ -185,7 +188,7 @@ class ReducerTests(TestCase):
     def test_reconsent_and_ended_help_without_goal(self):
         self.speech(1)
         first = self.draft(1)
-        self.send("help.stop", "PARENT")
+        self.send("help.end", reason="PARENT_STOPPED")
         self.reject("NO_CONSENT", "speech.final", speaker_role="CHILD", utterance_seq=2, utterance_id="turn-2")
         self.send("consent.updated", "PARENT", purpose="analysis", enabled=True)
         self.reject("STALE_BASIS", "instruction.drafted", source_utterance_id="turn-1",
@@ -197,16 +200,20 @@ class ReducerTests(TestCase):
         self.assertEqual((ended.data.snapshot.mode, ended.data.snapshot.help_state), ("CALL_CHILD_LED", "ENDED"))
 
     def test_authorization_and_input_rejection(self):
-        self.reject("UNAUTHORIZED", "help.complete", "PARENT")
+        # 자녀·부모는 승인된 종료(help.end)를 직접 보낼 수 없다. 명령은 N-22를 거친다.
+        self.reject("UNAUTHORIZED", "help.end", "CHILD", reason="CHILD_COMPLETED")
+        self.reject("INVALID_INPUT", "help.complete", "CHILD")
         self.reject("UNAUTHORIZED", "call.ended", "CHILD")
-        self.reject("UNAUTHORIZED", "help.stop", "PARENT", basis=replace(self.basis, pair_id="foreign"))
+        self.reject("UNAUTHORIZED", "help.end", basis=replace(self.basis, pair_id="foreign"), reason="PARENT_STOPPED")
         self.reject("INVALID_INPUT", "speech.final", speaker_role="CHILD", utterance_seq=True, utterance_id="bad")
         self.speech(1)
         self.reject("INVALID_INPUT", "instruction.drafted", source_utterance_id="turn-1", action="TAP",
                     target_key="raw fixture input", supersedes_previous=True)
         self.reject("INVALID_INPUT", "goal.drafted", source_utterance_id="turn-1",
                     goal_id="SET_FONT", approved_slots={"raw": "fixture text"})
-        self.reject("STALE_BASIS", "help.complete", "CHILD", basis=replace(self.basis, goal_revision=123))
+        # goal_revision은 종료 범위에 쓰지 않는다(결정 메모 1). 종료 사유는 승인된 두 가지뿐.
+        self.reject("INVALID_INPUT", "help.end", reason="BOGUS")
+        self.reject("INVALID_INPUT", "help.end", reason="CONSENT_REVOKED")
 
     def test_pre_gap_result_cannot_restore_a_protected_screen(self):
         self.send("projection.started", "PARENT", projection_epoch="epoch")

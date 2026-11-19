@@ -5,15 +5,16 @@
 | PairDirectory | N-01 resolve_pair (B) | mocks.StaticPairDirectory (MOCK) |
 | HelpStateReader.latest_help_id / get_snapshot / observation_paused | N-11 reduce_help_state (D) | control.SessionControl |
 | HelpStateReader.get_tombstone | N-23 purge_help_and_restart (D) | purge.TombstoneRegistry |
-| HelpStateReader.arrival_state | N-22 resolve_arrival_or_completion (D) | completion.CompletionLedger |
-| HelpScopedStore (HELP_STATE) | N-11 (D) | mocks.InMemoryHelpStore (MOCK, 격리 테스트용) |
-| HelpScopedStore (NAVIGATION_TRAIL) | N-12 (D) | mocks.ScopedBuffer (MOCK) |
-| HelpScopedStore (INFERENCE_RESULTS) | B-05 (C) | mocks.ScopedBuffer (MOCK) |
-| HelpScopedStore (PENDING_UTTERANCES) | B-02 (B) | mocks.ScopedBuffer (MOCK) |
+| HelpStateReader.arrival_state | N-22 resolve_arrival_or_completion (D) | control.SessionControl (N-22가 승인한 도착을 N-11이 반영한 상태) |
+| HelpScopedStore (HELP_STATE) | N-11 (D) | control._HelpStatePurge (격리 테스트: mocks.InMemoryHelpStore) |
+| HelpScopedStore (NAVIGATION_TRAIL) | N-12 (D) | control._TrailPurge (격리 테스트: mocks.ScopedBuffer) |
+| HelpScopedStore (INFERENCE_RESULTS) | B-05 (C) | 아직 서버에 데이터 없음: control._NoDataHeld (테스트: mocks.ScopedBuffer) |
+| HelpScopedStore (PENDING_UTTERANCES) | B-02 (B) | 아직 서버에 데이터 없음: control._NoDataHeld (테스트: mocks.ScopedBuffer) |
 | HelpScopedStore (ARRIVAL_NOTICE) | N-22 (D) | completion.CompletionLedger |
-| EventSink | WS /v1/events 제어 채널 (D) | mocks.RecordingEventSink (MOCK) |
+| EventSink | WS /v1/events 제어 채널 (D) | mocks.RecordingEventSink (MOCK). 미연결이면 control._NoChannel |
 
-session_state.SessionStateReader가 N-11 저장소·N-22 장부·N-23 기록을 묶어 HelpStateReader로 내놓는다.
+실제 서버 경로는 control.SessionControl이 N-11·N-12·N-22·N-23을 묶는다.
+session_state.SessionStateReader는 N-11 없이 N-22·N-23을 시험하는 격리 배선이다.
 """
 
 from __future__ import annotations

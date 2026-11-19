@@ -82,29 +82,33 @@ class CompletionLedger:
 
     def apply_arrival(
         self, *, help_id: str, mode_revision: int, goal_revision: int, arrival_id: str, arrived: bool
-    ) -> ArrivalState | None:
-        """새로 알릴 상태(SUSPECTED/REVOKED)를 돌려준다. 바뀔 게 없거나 처리한 키면 None."""
+    ) -> tuple[ArrivalState | None, str | None]:
+        """(새로 알릴 상태, 알림의 arrival_id). 바뀔 게 없거나 처리한 키면 (None, None).
+
+        철회(REVOKED)의 arrival_id는 철회 판단의 id가 아니라 앞서 알린 도착의 id다.
+        자녀 앱과 N-11은 그 id로 어떤 알림을 내릴지 안다.
+        """
         key = (help_id, mode_revision, goal_revision, arrival_id)
         with self._lock:
             if key in self._seen:
-                return None
+                return None, None
             self._seen.add(key)
             rec = self._arrival.get(help_id)
             current = (
-                rec.state
+                rec
                 if rec and rec.goal_revision == goal_revision and rec.mode_revision == mode_revision
-                else ArrivalState.NONE
+                else None
             )
             if arrived:
-                if current is ArrivalState.SUSPECTED:
-                    return None  # 같은 목표에 이미 알렸다
-                new_state = ArrivalState.SUSPECTED
+                if current is not None and current.state is ArrivalState.SUSPECTED:
+                    return None, None  # 같은 목표에 이미 알렸다
+                new_state, announced = ArrivalState.SUSPECTED, arrival_id
             else:
-                if current is not ArrivalState.SUSPECTED:
-                    return None  # 철회할 알림이 없다
-                new_state = ArrivalState.REVOKED
-            self._arrival[help_id] = _ArrivalRecord(new_state, goal_revision, mode_revision, arrival_id)
-            return new_state
+                if current is None or current.state is not ArrivalState.SUSPECTED:
+                    return None, None  # 철회할 알림이 없다
+                new_state, announced = ArrivalState.REVOKED, current.arrival_id
+            self._arrival[help_id] = _ArrivalRecord(new_state, goal_revision, mode_revision, announced)
+            return new_state, announced
 
     def end_claim(self, help_id: str) -> EndReason | None:
         with self._lock:
@@ -294,7 +298,7 @@ def _resolve_arrival(run, inp, ledger, basis, refs) -> NodeResult[CompletionData
         return run.error(ErrorCode.STALE_BASIS, "check_scope", basis, input_refs=refs)
     run.step("check_scope", StepStatus.SUCCESS)
 
-    announcement = ledger.apply_arrival(
+    announcement, announced_id = ledger.apply_arrival(
         help_id=inp.help_id,
         mode_revision=snap.mode_revision,
         goal_revision=current_goal,
@@ -302,7 +306,10 @@ def _resolve_arrival(run, inp, ledger, basis, refs) -> NodeResult[CompletionData
         arrived=a.arrived,
     )
     data = CompletionData(
-        announcement=announcement, arrival_id=a.arrival_id, end_requested=False, end_reason=None
+        announcement=announcement,
+        arrival_id=announced_id or a.arrival_id,
+        end_requested=False,
+        end_reason=None,
     )
     if announcement is None:
         run.step("announce_arrival", StepStatus.SKIPPED, ErrorCode.DUPLICATE.value)

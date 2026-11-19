@@ -208,7 +208,8 @@ _PUBLISHERS = {
     "instruction.drafted": ("SERVER",), "goal.drafted": ("SERVER",),
     "target.located": ("SERVER",), "action.assessed": ("SERVER",),
     "arrival.suspected": ("SERVER",), "arrival.revoked": ("SERVER",),
-    "help.complete": ("CHILD",), "help.stop": ("PARENT",),
+    # 자녀 완료·부모 중단은 N-22가 승인한 뒤 서버가 help.end로 넣는다 (계약 흐름 N-22 → N-11 → N-23)
+    "help.end": ("SERVER",),
     "guide.shown": ("PARENT",), "guide.suppressed": ("PARENT",),
 }
 _ROLES = frozenset({"PARENT", "CHILD"})
@@ -323,14 +324,16 @@ class HelpSession:
                 self._end(state, effects, EndReason.CONSENT_REVOKED)
                 effects.append(("stt.close", "SERVER"))
             return "state_applied"
-        if kind in ("help.complete", "help.stop"):
+        if kind == "help.end":
+            # N-22가 권한·중복을 승인한 종료만 들어온다. 자녀는 goal_revision을 모르므로(N-21)
+            # 범위는 공통 help_id 검사로만 확인한다 (docs/work/D-status.md 결정 메모 1).
             _require(s.help_state != "ENDED", "ALREADY_ENDED")
-            _basis(s, basis, "goal_revision", "consent_revision")
-            if kind == "help.stop":
+            reason = EndReason(p["reason"])
+            _require(reason in (EndReason.CHILD_COMPLETED, EndReason.PARENT_STOPPED))
+            if reason is EndReason.PARENT_STOPPED:
                 state.consenting -= {"PARENT"}
                 state.update(consent_revision=s.consent_revision + 1)
                 effects.append(("stt.close", "SERVER"))
-            reason = EndReason.PARENT_STOPPED if kind == "help.stop" else EndReason.CHILD_COMPLETED
             self._end(state, effects, reason)
             return "state_applied"
 
@@ -466,8 +469,9 @@ class HelpSession:
                      goal=None, instruction=None, screen=None, utterance_seq=None,
                      projection_epoch=None, screen_revision=None, observation_health="STOPPED", trail_cursor=0)
         if s.help_state != "ENDED":
+            # help.ended는 N-23이 남은 범위를 정리한 뒤 양쪽에 보낸다.
             effects.extend([("instruction.cleared", "PARENT"), ("trail.clear", "SERVER"),
-                            ("observation.stop", "PARENT"), ("help.ended", "BOTH")])
+                            ("observation.stop", "PARENT"), ("help.purge", "SERVER")])
 
     def _draft(self, state, kind, p, basis, effects):
         s = state.snapshot
