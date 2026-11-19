@@ -35,17 +35,18 @@
 
 ## 이슈 #1·#2 골격 PR 후보
 
-- `origin/main`에서 `A-gradle-skeleton`을 만든 뒤 `6205947`의 Gradle 골격과 `2664f12`의 `android/contract` 경로를 가져오는 안이다. `2664f12` 전체에는 기능의 import 변경도 포함된다. 후보에는 빈 `:rtc`·`:child`와 Android Studio에서 실행할 `:app`을 추가한다.
+- 사용자 승인 후 `origin/main`의 `8c76fed`에서 로컬 `A-gradle-skeleton`을 만들었다. `12f7e9e`는 `6205947`의 Gradle 골격이며, `e8f2d1a`는 `2664f12`의 `android/contract` 경로와 빈 `:rtc`·`:child`, 실행 가능한 `:app`을 담았다. 별도 체크아웃 `Hyojason-skeleton`의 `android/README.md`에 Android Studio 실행 방법이 있다.
+- 골격의 API 35 APK와 네 Android 라이브러리를 빌드하고 공통 계약 JVM 테스트 5개를 확인했다. `origin/main...A-gradle-skeleton`의 변경은 `android/`에 있고, Kotlin 소스는 공통 계약과 debug 검증 화면에만 있다. APK의 앱 ID, SDK 버전, 런처도 확인했다.
 - `:app`의 임시 화면은 `com.hyojason.app.debug`에 있고 debug 빌드에 포함된다. 오버레이 권한 요청과 하나의 테스트 테두리 표시·제거를 제공한다. 실제 캡처 검증은 N-07 서비스가 있는 `A`에서 연결한다. 골격의 화면은 해당 연결이 들어올 때까지 캡처를 대기 상태로 표시한다.
 - 검증 화면은 화면 공유의 상태, epoch와 프레임 수만 표시한다. 실제 프레임은 수신할 때 즉시 닫는다.
 
 ## 진행 상태
 
-- 현재 상태: 로컬 `A`에 N-07 캡처 시작·중지와 오버레이 권한·테두리를 시험하는 debug 전용 `:app`을 추가했다. 앱 ID는 `com.hyojason.app`, minSdk와 targetSdk는 35다. 앱·라이브러리 assembleDebug와 JVM 테스트 43개를 확인했다. APK는 `android/app/build/outputs/apk/debug/app-debug.apk`에 있다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 현재 상태: 로컬 `A-gradle-skeleton`의 `e8f2d1a`에서 골격 후보 빌드와 계약 테스트 5개를 확인했다. 기능 작업용 `A`는 실제 N-07 연결이 있는 debug 앱을 포함하며, 앱·라이브러리 빌드와 JVM 테스트 43개를 확인했다. 두 체크아웃의 APK 경로는 각각 `android/app/build/outputs/apk/debug/app-debug.apk`다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.11.1, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 브랜치 생성 승인 후 `A-gradle-skeleton`에 골격과 공유 모듈, 빈 `:rtc`·`:child`, 임시 화면을 담고 빌드한다. 푸시와 PR은 각각 사용자 확인 뒤 진행한다. Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
+- 다음 할 일: 사용자 확인을 받은 뒤 `A-gradle-skeleton`만 원격에 푸시한다. 이후 `main` 대상 골격 PR 생성은 별도로 확인받는다. 기능 작업에서는 Android 15에서 N-07 승인·앱 전환·중지·재승인을 확인한 뒤 N-20을 진행한다.
 - 하면 안 되는 일: 계약 문서 변경, B 슬롯 기능 수정, `main` 직접 커밋, 승인 전 브랜치 생성·rebase·푸시·PR, fixture의 LIVE 처리.
-- 막힌 것: 골격 후보의 로컬 브랜치 생성 승인 대기. N-07의 Android 15 동작 확인 대기.
+- 막힌 것: `A-gradle-skeleton` 푸시 승인 대기. N-07의 Android 15 동작 확인 대기.
 
 ## AGENTS.md 테스트 실행 명령 제안
 
