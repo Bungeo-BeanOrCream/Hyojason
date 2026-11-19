@@ -25,12 +25,18 @@
 - 승인 시 프레임이 들어오고 통화가 종료돼도 동일한 도움에서 관찰이 지속되는지 확인한다. 시스템 공유 중지, 부모 종료, 권한 철회 각각에서 수신이 멈추고 로컬 관찰이 폐기돼야 한다.
 - 캡처를 거절한 경우 프레임 소스가 없어야 한다. 이전 승인을 재사용하면 열리지 않아야 한다. 재승인에서 새 epoch만 발행되고 이전 epoch 프레임은 `STALE_BASIS`로 폐기되는지 확인한다.
 - 로컬 검증용 APK는 레포 폴더 옆의 `N07-probe/app/build/outputs/apk/debug/app-debug.apk`에 있다. API 35 AVD 또는 기기에 설치하고 홈 화면의 ‘Hyojason 캡처 검증’을 연다. 승인 결과, epoch와 프레임 수만 보여 주며 프레임 내용은 표시하지 않는다.
+- 2026-11-19에 `Hyojason_N07_API35`를 Google APIs x86_64 API 35 이미지로 생성하고, `emulator-5562`에 APK를 설치해 검증 앱을 열었다. 앱 시작까지 확인했다.
 - ‘사용한 승인 다시 제출’의 기대 결과는 `DUPLICATE`이며 기존 세션의 epoch는 그대로다. 중지 후 재승인에서는 다른 epoch가 보여야 한다. ‘통화 종료 이벤트 모의’는 캡처를 멈추지 않고 기준 프레임 수를 기록한다. 실제 통화 종료는 부모 통합 APK에서 별도로 확인한다.
+
+## B-06 재접속
+
+- `71f54aa`에서 기존 표시를 지우고 예약 타이머를 취소하도록 했다. 현재 scope의 새 안정 화면을 서버에 보낸 뒤 `server_event_seq`보다 큰 안내만 N-19에서 재검증한다. 같은 도움의 재접속은 적용했던 지시 ID를 보존한다.
+- 부모 앱의 직렬 이벤트 루프에서 `ParentResumeGate.applyReconnect`를 호출하고, 안정 화면 전송 직후 `onScreenObserved`를 호출한다. 이후 `GuideGate.evaluate`에 같은 재접속 상태를 전달한다. [D 참조 구현](https://github.com/Bungeo-BeanOrCream/Hyojason/blob/D/server/session/hyojason_session/client_resume_gate.py)
 
 ## 진행 상태
 
-- 현재 상태: 로컬 `A`에서 N-07·08·09·10·19를 구현했다. 이슈 #2 공유 모듈과 이슈 #3 프로필·revision을 반영했다. 두 라이브러리 assembleDebug와 JVM 테스트 37개가 통과했다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
+- 현재 상태: 로컬 `A`에서 N-07·08·09·10·19와 B-06 재접속 차단을 구현했다. 이슈 #2 공유 모듈과 이슈 #3 프로필·revision을 반영했다. 두 라이브러리 assembleDebug와 JVM 테스트 43개가 통과했다. 07.1~07.5의 Android 실동작은 `UNVERIFIED`다.
 - 빌드 환경: AGP 8.10.0, Kotlin 2.2.10, Gradle 8.11.1, JVM 타깃 17, JUnit 4.13.2. 현재 Windows 한글 경로에서는 상위 작업 폴더를 임시 드라이브 문자에 연결해 실행했다. SDK는 체크아웃 바깥 작업 폴더의 `.android-sdk`를 사용했다.
-- 다음 할 일: 검증용 APK를 API 35 기기에서 실행해 N-07을 확인한다. 그 뒤 N-20 Android 창 렌더와 Settings·Clock의 터치 전달을 검증한다. 골격과 공유 모듈을 먼저 올리는 PR은 사용자 확인을 받는다.
+- 다음 할 일: 열어 둔 Android 15 검증 앱에서 화면 공유 승인, 앱 전환 중 수신, 시스템 중지, 재승인 epoch를 사람이 확인한다. 그 뒤 N-20 Android 창 렌더와 Settings·Clock의 터치 전달을 검증한다. 골격과 공유 모듈을 먼저 올리는 PR은 사용자 확인을 받는다.
 - 하면 안 되는 일: 계약 문서와 다른 슬롯 경로 수정, `main` 직접 커밋, 확인 전 푸시·PR, fixture의 LIVE 처리.
 - 막힌 것: API 35 AVD 또는 기기에서 사용자가 확인한 N-07 결과가 필요하다.
