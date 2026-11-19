@@ -1,0 +1,13 @@
+# pip install -r requirements.txt
+#
+# 공통 계약(NodeResult·Basis·Role·Event, docs/node-result-contract.md · docs/contracts.md)은
+# server/session(D)의 hyojason_session을 import해서 쓴다. pip 패키지가 아니므로 여기 없다.
+# D가 main에 합쳐지면 pyproject의 pythonpath(../session)로 자동으로 잡힌다.
+# 그 전에는 README의 PYTHONPATH 설정을 따른다.
+fastapi==0.165.0
+uvicorn==0.54.0
+livekit-api==1.2.3
+livekit-agents==1.8.13
+livekit-plugins-rtzr==1.8.13
+pytest==9.2.0
+httpx==0.28.1

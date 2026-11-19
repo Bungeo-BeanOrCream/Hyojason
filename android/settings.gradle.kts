@@ -11,6 +11,8 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // LiveKit Android SDK의 audioswitch 의존성만 jitpack에서 받는다.
+        maven("https://jitpack.io") { content { includeGroup("com.github.davidliu") } }
     }
 }
 
