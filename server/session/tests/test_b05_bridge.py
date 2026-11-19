@@ -68,8 +68,8 @@ def keys(value) -> set:
 class Flow:
     """부모 발신 → 자녀 수락 → 양쪽 동의 → 부모 캡처 시작 → 설정 홈 관찰까지 진행한 통화."""
 
-    def __init__(self, *, prefer=(), threaded=False) -> None:
-        self.bridge = AgentBridge.with_fixture_model(prefer=prefer, threaded=threaded)
+    def __init__(self, *, prefer=(), threaded=False, bridge=None) -> None:
+        self.bridge = bridge or AgentBridge.with_fixture_model(prefer=prefer, threaded=threaded)
         self.hub = SessionHub(
             catalog=default_catalog(extra_evidence=("navigation_transition",)), approved_slots=APPROVED_SLOTS,
             pairs=MockTokenAuthenticator({"p": PARENT, "c": CHILD}), pairing=MockPairingService(),

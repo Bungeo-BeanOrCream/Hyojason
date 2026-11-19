@@ -19,12 +19,15 @@ D → C → D → 지원 대상 기기. 근거: 이슈 #14 다음 계획 3, serv
 - B-05 실행 기록은 도움 단위 저장소(INFERENCE_RESULTS)에 두고 N-23이 도움이 끝날 때 지운다.
   발화 원문은 C에만 넘기고 저장하지 않는다.
 
-MOCK: fixture_zoro()는 Zoro-1 대신 질문의 첫 선택지(또는 prefer에 있는 선택지)를 0.95로 고른다. 결과 출처는 FIXTURE다.
+모델: with_zoro_from_env()는 L40S의 실제 Zoro-1(#23)을 부른다. MOCK fixture_zoro()는 질문의 첫 선택지(또는
+prefer에 있는 선택지)를 0.95로 고른다. 실제 모델이어도 통화·발화·화면이 합성이면 결과 출처는 FIXTURE다
+(모델 호출 자체는 결과의 model_revision으로 구분한다).
 C 코드(server/agent)는 고치지 않고 import만 한다. 저장소 루트가 sys.path에 있어야 한다 (pyproject pythonpath).
 """
 
 from __future__ import annotations
 
+import os
 import threading
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
@@ -48,6 +51,8 @@ from . import wire
 TARGET_LOCATED, ACTION_ASSESSED = "target.located", "action.assessed"
 RECOVERY_READY, GUIDE_PROPOSED = "recovery.ready", "guide.proposed"
 RESULT_EVENTS = frozenset({TARGET_LOCATED, ACTION_ASSESSED, RECOVERY_READY, GUIDE_PROPOSED})
+# 실제 Zoro-1에 필요한 실행 환경 값 (C의 InferZoroChoice.from_environment와 같은 이름)
+ZORO_REQUIRED = ("ZORO_DECIDE_URL", "ZORO_MODEL_REVISION")
 
 
 def fixture_zoro(*, prefer: Sequence[str] = (), score: float = 0.95) -> InferZoroChoice:
@@ -168,9 +173,19 @@ class AgentBridge:
                    **{"source": Source.FIXTURE, **kwargs})
 
     @classmethod
-    def with_zoro_from_env(cls, **kwargs) -> AgentBridge:
-        """ZORO_DECIDE_URL·ZORO_MODEL_REVISION·ZORO_DECIDE_TOKEN (server/agent/README.md)."""
-        return cls(B05Workflow(), **kwargs)
+    def with_zoro_from_env(cls, env: Mapping[str, str] | None = None, **kwargs) -> AgentBridge:
+        """실제 Zoro-1: ZORO_DECIDE_URL·ZORO_MODEL_REVISION(필수), ZORO_DECIDE_TOKEN(서빙 프록시가 요구할 때).
+
+        값이 없으면 C의 N-14가 모든 호출을 DEPENDENCY_UNAVAILABLE로 끝내 안내가 조용히 사라지므로,
+        서버를 띄울 때 바로 알린다. 값은 저장소가 아니라 실행 환경에서만 준다 (server/agent/README.md).
+        """
+        env = os.environ if env is None else env
+        missing = [name for name in ZORO_REQUIRED if not env.get(name)]
+        if missing:
+            raise RuntimeError(f"set {', '.join(missing)} for HYOJASON_AGENT=zoro (server/agent/README.md)")
+        model = InferZoroChoice(endpoint=env["ZORO_DECIDE_URL"], model_revision=env["ZORO_MODEL_REVISION"],
+                                bearer_token=env.get("ZORO_DECIDE_TOKEN") or None)
+        return cls(B05Workflow(infer_zoro_choice=model.run), **kwargs)
 
     # --- 입구 ---------------------------------------------------------------------
     def after_apply(self, hub, control, kind: str, payload: Mapping, previous, update) -> None:

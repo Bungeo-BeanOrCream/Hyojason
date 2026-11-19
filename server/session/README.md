@@ -50,12 +50,21 @@ PYTHONPATH=../.. HYOJASON_AGENT=fixture uvicorn hyojason_session.api.app:create_
 |---|---|
 | `off` (기본) | C 판단 없이 앱·내부 이벤트만 처리 |
 | `fixture` | C의 `B05Workflow`를 그대로 쓰고 Zoro-1만 **MOCK**(질문의 첫 선택지를 0.95로 고름). 결과는 FIXTURE |
-| `zoro` | 실제 Zoro-1 (`ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION`·`ZORO_DECIDE_TOKEN`, [server/agent](../agent/README.md)) |
+| `zoro` | L40S의 실제 Zoro-1 (#23). `ZORO_DECIDE_URL`·`ZORO_MODEL_REVISION` 필수, 서빙 프록시가 요구하면 `ZORO_DECIDE_TOKEN`. 값이 없으면 서버가 뜨지 않는다 ([server/agent](../agent/README.md)) |
 
 B-02가 붙기 전에는 내부 경로로 자녀 발화를 넣는다: `POST /v1/internal/calls/{call_id}/events`, body `{"type": "speech.final", "payload": {"speaker_role": "CHILD", "utterance_id": "t1", "utterance_seq": 1, "text": "..."}}`.
 그러면 N-11 → C → N-11 순서로 지시(`instruction.accepted`)·목표(`goal.updated`)·대상 위치(`target.located`)가 부모 WS로 간다.
 화면 관찰 뒤에는 `action.assessed`·`recovery.ready`·`guide.proposed`가 부모에게 가고, 도착 추정은 N-22를 거쳐 자녀에게 `arrival.suspected`로 간다.
 결과 이벤트는 지원 대상 기기에만 간다. 흐름과 규칙은 [결정 메모 12](../../docs/work/D-status.md), 코드는 `hyojason_session/api/agent_bridge.py`.
+
+실제 모델 확인 (접속 값은 C에게 받아 실행 환경에만 둔다):
+
+```bash
+cd server/session
+HYOJASON_LIVE_ZORO=1 ZORO_DECIDE_URL=... ZORO_MODEL_REVISION=... python -m pytest tests/test_b05_zoro.py -rs
+```
+
+접속 값이 없으면 실제 모델 테스트 2개는 건너뛴다. 나머지는 로컬 가짜 `/v1/decide` 서버로 C의 HTTP 호출 경로, 접속 실패·마감 초과 때 위치 근거를 보내지 않는 동작을 확인한다.
 
 ## 구조
 
