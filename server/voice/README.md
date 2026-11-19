@@ -32,7 +32,9 @@ D가 main에 합쳐지면 `PYTHONPATH` 설정과 worktree가 필요 없다(`pypr
 | `stt.py` | N-05 엔진 결과 → 계약 변환 (엔진 미연결) | FIXTURE |
 | `finalize.py` | N-06 중복·역순·종료 후 결과 차단, 자녀 발화만 triggered | FIXTURE |
 | `events.py` | `call.invite/accepted/connected/ended`, `speech.final` 봉투 | — |
-| `app.py` | 제어 엔드포인트 + dev 텍스트 입력 스텁 | FIXTURE |
+| `service.py` | **D가 부를 B 판단 함수 묶음**(#10). 인증(`authenticate`·`role_of`), N-01 `invite`·`claim`·`unpair`, N-02, N-03 `call_op`·`rtc_token`, 웹훅, 이벤트 출구 `set_event_sink`. FastAPI 없음 | FIXTURE + AVD LIVE |
+| `auth.py` | 기기 Bearer 토큰 발급·확인 | FIXTURE + AVD LIVE |
+| `app.py` | `service.py`를 감싼 B 임시 라우트(D 연결 전 dev·AVD용). 판단 로직 없음 | — |
 | `worker.py` | 수락 때 자동 실행. 참가·퇴장 → N-03, 역할별 마이크 → N-04 → RTZR → N-05 → N-06 | LIVE 확인 전 |
 
 ## STT worker
@@ -52,6 +54,18 @@ curl -sS localhost:8000/v1/dev/outbox
 
 `GET /v1/calls/current`: 페어의 진행 중 통화(`call_id, call_state, caller_role, accepted, connected_roles`) 또는 `null`.
 앱(`android/child`)이 화면이 보이는 동안 1.5초마다 물어 수신·수락·상대 끊음을 안다. D의 `WS /v1/events`가 생기면 이벤트로 바꾼다.
+
+## D 서버에 연결하기 (#10)
+
+D 서버가 B 함수를 그대로 부른다. `origin/D`(e92ef7b)에서 아래처럼 바꿔 끼워 확인했다(help/current·발신·수락·WS 인증 통과, 가짜 토큰 401).
+
+```python
+from hyojason_voice import service
+app = create_app(ServerConfig(authenticator=service, service_token=...))  # MockTokenAuthenticator 자리
+service.set_event_sink(lambda trace_id, ev: ...)  # B 이벤트(call.*, speech.final)를 D 쪽으로
+```
+
+가족 연결은 통화가 끝나도 유지되고 `POST /v1/pairs/unpair`(앱 '가족 연결 끊기')로만 끊긴다. 끊기면 두 기기 모두 다음 요청부터 403 → 연결 화면.
 
 ## 인증 (#10)
 
