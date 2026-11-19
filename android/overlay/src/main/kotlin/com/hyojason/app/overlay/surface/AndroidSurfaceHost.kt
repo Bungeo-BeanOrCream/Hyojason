@@ -62,7 +62,7 @@ class AndroidSurfaceHost(
         val view = View(context).apply {
             background = GradientDrawable().apply {
                 setColor(Color.TRANSPARENT)
-                setStroke(dp(5), Color.RED)
+                setStroke(dp(3), Color.parseColor("#D92D43"))
                 cornerRadius = dp(8).toFloat()
             }
         }

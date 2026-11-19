@@ -102,6 +102,7 @@ class AssistHubTests(TestCase):
         decisions = [event for event in events if event["type"] == "assist.decision"]
         self.assertTrue(decisions, [event["type"] for event in events])
         self.assertEqual(decisions[-1]["payload"]["target"]["target_id"], "settings.display")
+        self.assertTrue(decisions[-1]["payload"]["decision_id"])  # guide.shown 확인용 (PR #29)
         self.assertEqual(control.snapshot.instruction.target_key, "settings.display")
 
     def test_no_model_call_without_analysis_consent(self):

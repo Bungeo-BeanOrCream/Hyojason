@@ -10,6 +10,8 @@ D → C → D → 지원 대상 기기. 통합 진입점(server/mvp.py)은 앱 �
 | 지원 대상의 screen.observed | 통화 중 연속 전이면 observation.transition, 아니면 screen.observed | target.located·action.assessed, recovery·guide, 도착 추정 → N-22 |
 
 - 앱으로는 지금 Android가 받는 `assist.decision` 하나로 묶어 지원 대상 기기에만 보낸다.
+  판단마다 `decision_id`를 붙이고, 지원 대상이 `guide.shown`으로 같은 판단·같은 범위의 표시를 알려 와야
+  도와주는 쪽 `help.view`의 `goal_context.guide_shown`을 켠다 (#27 보호자 상태, PR #29).
 - 오래된 결과는 두 번 거른다: B-05의 read_current와 N-11의 STALE_BASIS.
 - 발화 원문은 C에만 넘기고 로그·결과에 남기지 않는다.
 - C 코드(server/agent)는 import만 한다. 저장소 루트가 sys.path에 있어야 한다 (pyproject pythonpath).
@@ -18,11 +20,13 @@ D → C → D → 지원 대상 기기. 통합 진입점(server/mvp.py)은 앱 �
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import logging
+from secrets import token_urlsafe
 
 from server.agent._execution import ExecutionContext
 from server.agent.b05_workflow import AgentSnapshot, B05Input, B05Workflow, is_current
+from server.agent.profiles import GOAL_LABELS
 from server.agent.session_adapter import from_session
 from server.contracts import FinalUtterance, ScreenState
 
@@ -43,11 +47,59 @@ class AssistedSessionHub(SessionHub):
         super().__init__(**kwargs)
         self.workflow = workflow
         self.tasks: set[asyncio.Task] = set()
+        # call_id → (decision_id, 판단 당시 범위, 지원 대상 기기의 표시 확인 여부)
+        self._guide_offers: dict[str, tuple[str, tuple, bool]] = {}
 
     # --- 확장 지점 -------------------------------------------------------------
     def analysis_allowed(self, pair_id: str) -> bool:
         """두 역할의 분석 동의가 유효한지. 음성 서비스가 동의를 가진 통합 서버가 재정의한다."""
         return True
+
+    @staticmethod
+    def _guide_scope(view) -> tuple:
+        return (view.help_id, view.consent_revision, view.mode_revision, view.goal_revision,
+                view.instruction_revision, view.projection_epoch, view.screen_revision, view.observation_health)
+
+    # --- 보호자 상태 (help.view goal_context) ------------------------------------------
+    def deliver(self, pair_id, role, event) -> bool:
+        if event.type == wire.VIEW_EVENT:
+            control = self.current_control(pair_id)
+            if control is None:
+                return super().deliver(pair_id, role, event)
+            view = control.snapshot
+            if view.help_state == "ENDED":
+                self._guide_offers.pop(view.call_id, None)
+            elif event.help_id == view.help_id:
+                offer = self._guide_offers.get(view.call_id)
+                shown = bool(offer and offer[2] and offer[1] == self._guide_scope(view))
+                goal_id = view.goal.goal_id if view.goal and view.goal.goal_id in GOAL_LABELS else None
+                if goal_id or shown:
+                    context = {"goal_id": goal_id, "guide_shown": shown, "mode": view.mode}
+                    context["arrival_suspected"] = control.arrival_state(view.help_id) == "SUSPECTED"
+                    event = replace(event, payload={**event.payload, "goal_context": context})
+        return super().deliver(pair_id, role, event)
+
+    def handle_client(self, actor, message: object) -> dict:
+        kind = message.get("type") if isinstance(message, dict) else None
+        control = self.current_control(actor.pair_id) if kind == "guide.shown" else None
+        if control is not None:
+            # 표시 확인은 지금 범위에서 낸 마지막 판단(decision_id)에만 받는다.
+            view = control.snapshot
+            offer = self._guide_offers.get(view.call_id)
+            payload = message.get("payload")
+            if (not offer or not isinstance(payload, dict) or payload.get("decision_id") != offer[0]
+                    or offer[1] != self._guide_scope(view)):
+                return wire.rejected(message.get("event_id"), "CONFLICT", "STALE_BASIS")
+        reply = super().handle_client(actor, message)
+        if reply["type"] == wire.ACK and kind == "guide.shown":
+            control = self.current_control(actor.pair_id)
+            if control is not None:
+                call_id = control.snapshot.call_id
+                decision_id, scope, shown = self._guide_offers[call_id]
+                if not shown:
+                    self._guide_offers[call_id] = (decision_id, scope, True)
+                    self._push_views(control)
+        return reply
 
     # --- 입구 ---------------------------------------------------------------------
     def _apply(self, control, kind, role, payload=None, **kwargs):
@@ -148,7 +200,12 @@ class AssistedSessionHub(SessionHub):
             self.submit_arrival(basis.call_id, to_jsonable(data.arrival))
         if data.target or data.verdict or data.recovery or data.guide or data.warning:
             current = control.snapshot
-            payload = {"basis": to_jsonable(current.basis), "trace_id": control.trace_id,
+            decision_id = token_urlsafe(18)
+            scope = self._guide_scope(current)
+            previous = self._guide_offers.get(current.call_id)
+            self._guide_offers[current.call_id] = (
+                decision_id, scope, bool(previous and previous[1] == scope and previous[2]))
+            payload = {"basis": to_jsonable(current.basis), "trace_id": control.trace_id, "decision_id": decision_id,
                        "target": to_jsonable(data.target), "verdict": to_jsonable(data.verdict),
                        "recovery": to_jsonable(data.recovery), "guide": to_jsonable(data.guide),
                        "warning": data.warning}

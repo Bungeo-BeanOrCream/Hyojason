@@ -115,6 +115,11 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
             assert decision["payload"]["trace_id"] == started["trace_id"]
             assert decision["payload"]["target"]["model_revision"] == model.model_revision
             assert not {"assist.decision", "instruction.accepted"}.intersection(e["type"] for e in collect(cws))
+            observe("guide.shown", {"decision_id": decision["payload"]["decision_id"], "mode": "CALL_CHILD_LED"})
+            shown = [e["payload"]["goal_context"] for e in collect(cws)
+                     if e["type"] == "help.view" and "goal_context" in e["payload"]]
+            assert shown[-1] == {"goal_id": None, "guide_shown": True,
+                                 "arrival_suspected": False, "mode": "CALL_CHILD_LED"}
 
             goal = client.post("/v1/dev/speech-final", headers=helper, json={
                 "call_id": call_id, "speaker_role": helper_role, "text": "내일 오전 6시로 알람 맞추자. 시계 앱을 눌러 줘",
@@ -122,6 +127,10 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
             assert goal.status_code == 200, goal.text
             client.portal.call(drain)
             assert current.snapshot.goal.goal_id == "CLOCK_ALARM"
+            goal_context = [e["payload"]["goal_context"] for e in collect(cws)
+                            if e["type"] == "help.view" and "goal_context" in e["payload"]]
+            assert goal_context[-1] == {"goal_id": "CLOCK_ALARM", "guide_shown": False,
+                                        "arrival_suspected": False, "mode": "CALL_CHILD_LED"}
             original_help = current.snapshot.help_id
             assert client.post(f"/v1/calls/{call_id}/end", headers=helper).status_code == 200
             assert current.snapshot.mode == "POST_CALL_AGENT"
@@ -142,7 +151,10 @@ def test_speech_uses_the_rtc_session_and_guides_only_the_assisted_device(model, 
                                         "target_ids": ["clock.add_alarm"],
                                         "evidence_codes": ["alarm_card_active", "alarm_next:tomorrow:06:00"]})
             client.portal.call(drain)
-            assert sum(e["type"] == "arrival.suspected" for e in collect(cws)) == 1
+            helper_events = collect(cws)
+            assert sum(e["type"] == "arrival.suspected" for e in helper_events) == 1
+            assert any(e["type"] == "help.view" and e["payload"].get("goal_context", {}).get("arrival_suspected")
+                       for e in helper_events)
             cws.send_json({"v": 1, "type": "help.complete", "event_id": "help-complete", "pair_id": invite["pair_id"],
                            "call_id": call_id, "help_id": original_help, "payload": {}})
             assert any(e["type"] == "event.ack" and e["event_id"] == "help-complete" for e in collect(cws))
