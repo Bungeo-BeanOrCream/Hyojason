@@ -4,7 +4,7 @@
 
 Trillion Labs Hackathon Track 1에서 개발하는 프로토타입입니다. [대회 안내](https://hackathon.trillionlabs.co/)
 
-## 음성 안내 미리보기
+## 안내 미리보기
 
 가족이 통화 중 설정 앱을 눌러 달라고 말한 예시입니다. 오른쪽 화면에서는 상단 안내문으로 앱 이름을 확인하고, 빨간 테두리가 생긴 **설정(Settings)** 아이콘을 직접 누를 수 있습니다.
 
